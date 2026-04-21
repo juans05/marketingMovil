@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'core/constants/app_colors.dart';
 import 'core/services/app_provider.dart';
 import 'features/auth/login_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
+import 'shared/widgets/upload_banner.dart';
 
 class VidalisApp extends StatelessWidget {
   const VidalisApp({super.key});
@@ -13,6 +15,12 @@ class VidalisApp extends StatelessWidget {
     return MaterialApp(
       title: 'Vidalis.AI',
       debugShowCheckedModeBanner: false,
+      builder: (context, child) => Stack(
+        children: [
+          child!,
+          const UploadBannerOverlay(),
+        ],
+      ),
       theme: _buildTheme(),
       initialRoute: '/',
       routes: {
@@ -45,7 +53,7 @@ class VidalisApp extends StatelessWidget {
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: AppColors.bgCard,
-        indicatorColor: AppColors.primary.withOpacity(0.2),
+        indicatorColor: AppColors.primary.withValues(alpha: 0.2),
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
           return TextStyle(
@@ -126,6 +134,7 @@ class _SplashRouterState extends State<_SplashRouter>
     if (!mounted) return;
     final prov = context.read<AppProvider>();
     await prov.init();
+    unawaited(prov.resumePendingUpload());
     if (!mounted) return;
     if (prov.user != null) {
       Navigator.of(context).pushReplacementNamed('/dashboard');
@@ -147,7 +156,7 @@ class _SplashRouterState extends State<_SplashRouter>
       body: Center(
         child: AnimatedBuilder(
           animation: _ctrl,
-          builder: (_, __) => Opacity(
+          builder: (_, _) => Opacity(
             opacity: _opacity.value,
             child: Transform.scale(
               scale: _scale.value,
