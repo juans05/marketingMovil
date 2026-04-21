@@ -43,12 +43,15 @@ El flujo actual en `content_screen.dart` tiene tres problemas críticos:
 
 ### Capa 2: Backend Node.js (sin cambios de upload)
 
-Los endpoints existentes son suficientes:
-- `GET /api/vidalis/cloudinary-signature` — genera firma para upload autenticado (ya existe)
-- `POST /api/vidalis/videos` — registra el video en Supabase tras upload (ya existe)
-- `PATCH /api/vidalis/videos/:id` — actualiza estado y URL (ya existe)
+Endpoints existentes (sin cambios):
+- `GET /api/vidalis/cloudinary-signature` — genera firma para upload autenticado
+- `POST /api/vidalis/videos` — registra el video en Supabase
+- `PATCH /api/vidalis/videos/:id` — actualiza estado y URL
 
-El backend nunca toca los bytes del video.
+Nuevo endpoint requerido (solo para URL remota):
+- `POST /api/vidalis/videos/from-url` — recibe `{ artist_id, remote_url, title }`, llama a Cloudinary con `type: 'url'`, registra en Supabase
+
+El backend nunca descarga ni almacena bytes de video — Cloudinary hace el fetch remoto directamente.
 
 ### Capa 3: Cloudinary
 
@@ -61,12 +64,12 @@ El backend nunca toca los bytes del video.
 
 ## Flujo completo
 
+### Path A: Galería / Cámara (archivo local)
+
 ```
 Artista elige fuente
-        │
-        ├─ Galería → image_picker → File
-        ├─ Cámara → camera package → File
-        └─ URL remota → skip compresión → URL string
+  ├─ Galería → image_picker → File
+  └─ Cámara → camera package → File
         │
         ▼
 VideoCompressor.compress(file, quality: MediumQuality)
@@ -99,6 +102,29 @@ Banner: "¡Video subido! ✓" (verde, 3 segundos)
 LocalNotifier: notificación del sistema
 Limpieza: archivo temporal eliminado
 SharedPreferences: uploadId eliminado
+```
+
+### Path B: URL remota (YouTube, Drive, etc.)
+
+```
+Artista pega URL externa
+        │
+        ▼
+Banner aparece: "Procesando URL..."
+        │
+        ▼
+POST /api/vidalis/videos/from-url
+  → { artist_id, remote_url, title }
+  → backend llama a Cloudinary Upload API con type: 'url'
+  → Cloudinary descarga y transcodifica en sus servidores
+  → backend espera secure_url y registra en Supabase
+        │
+        ▼
+Banner: "¡Video subido! ✓"
+LocalNotifier: notificación del sistema
+```
+
+> **Nota:** El Path B requiere un nuevo endpoint `POST /api/vidalis/videos/from-url` en el backend Node.js. Es el único cambio de backend necesario.
 ```
 
 ### Flujo de reanudación tras fallo
