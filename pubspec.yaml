@@ -11,6 +11,7 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
+  google_sign_in: ^6.2.1
 
   # HTTP
   http: ^1.2.1
@@ -30,6 +31,18 @@ dependencies:
   # Media picker
   image_picker: ^1.1.2
 
+  # Camera
+  camera: ^0.11.0
+
+  # Video compression
+  video_compress: ^3.1.0
+
+  # Local notifications
+  flutter_local_notifications: ^17.0.0
+
+  # Network connectivity
+  connectivity_plus: ^6.0.0
+
   # Video player
   video_player: ^2.9.1
 
@@ -43,6 +56,23 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.7
 
+  image: any
 flutter:
   uses-material-design: true
+  assets:
+    - assets/
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/logo.png"
+
+flutter_native_splash:
+  color: "#09090B"
+  image: "assets/logo.png"
+  android_12:
+    image: "assets/logo.png"
+    icon_background_color: "#09090B"
