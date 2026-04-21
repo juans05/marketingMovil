@@ -1,6 +1,5 @@
-import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/artist_model.dart';
@@ -11,6 +10,7 @@ import '../../shared/widgets/vidalis_button.dart';
 import '../../shared/widgets/vidalis_input.dart';
 import '../../shared/widgets/vidalis_dropdown.dart';
 import 'video_detail_screen.dart';
+import 'video_source_picker.dart';
 
 class ContentScreen extends StatefulWidget {
   const ContentScreen({super.key});
@@ -24,10 +24,6 @@ class _ContentScreenState extends State<ContentScreen> {
   List<({VideoModel video, ArtistModel? artist})> _entries = [];
   bool _loading = true;
   String? _error;
-
-  // Upload state
-  bool _uploading = false;
-  double _uploadProgress = 0;
 
   // Artista filtro seleccionado (null = todos)
   String? _filterArtistId;
@@ -106,55 +102,31 @@ class _ContentScreenState extends State<ContentScreen> {
     }
   }
 
-  Future<void> _pickAndUpload() async {
+  Future<void> _openSourcePicker() async {
     final prov = context.read<AppProvider>();
     final artists = prov.artists;
-
-    // Determinar artista destino
-    ArtistModel? target;
-    if (_filterArtistId != null) {
-      target = artists.firstWhere((a) => a.id == _filterArtistId,
-          orElse: () => prov.activeArtist ?? artists.first);
-    } else {
-      target = prov.activeArtist ?? (artists.isNotEmpty ? artists.first : null);
-    }
-
-    if (target == null) {
-      _showSnack('No hay artistas disponibles', isError: true);
+    if (artists.isEmpty) {
+      _showSnack('Crea un artista primero', isError: true);
       return;
     }
 
-    // Si hay múltiples artistas y ninguno filtrado, preguntar cuál usar
-    if (_filterArtistId == null && artists.length > 1) {
-      target = await _pickArtistDialog(artists) ?? target;
+    var target = artists.first;
+    if (artists.length > 1) {
+      final picked = await _pickArtistDialog(artists);
+      if (picked == null) return;
+      target = picked;
     }
 
-    final picker = ImagePicker();
-    final picked = await picker.pickVideo(source: ImageSource.gallery);
-    if (picked == null || !mounted) return;
+    if (!mounted) return;
+    final result = await VideoSourcePicker.show(context);
+    if (result == null || !mounted) return;
 
-    setState(() { _uploading = true; _uploadProgress = 0; });
-
-    try {
-      final video = await prov.api.uploadVideo(
-        videoFile: File(picked.path),
-        artistId: target.id,
-        onProgress: (p) {
-          if (mounted) setState(() => _uploadProgress = p);
-        },
-      );
-      if (mounted) {
-        setState(() => _entries = [
-          (video: video, artist: artists.length > 1 ? target : null),
-          ..._entries,
-        ]);
-        _showSnack('Video subido — la IA está procesando');
-      }
-    } catch (e) {
-      if (mounted) _showSnack('Error: $e', isError: true);
-    } finally {
-      if (mounted) setState(() { _uploading = false; _uploadProgress = 0; });
-    }
+    unawaited(prov.startUpload(
+      artistId: target.id,
+      title: result.title ?? 'Video ${DateTime.now().millisecondsSinceEpoch}',
+      filePath: result.filePath,
+      remoteUrl: result.remoteUrl,
+    ));
   }
 
   Future<ArtistModel?> _pickArtistDialog(List<ArtistModel> artists) {
@@ -212,9 +184,9 @@ class _ContentScreenState extends State<ContentScreen> {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
               child: _UploadCard(
-                uploading: _uploading,
-                progress: _uploadProgress,
-                onPick: _uploading ? null : _pickAndUpload,
+                uploading: false,
+                progress: 0,
+                onPick: _openSourcePicker,
               ),
             ),
           ),
@@ -237,9 +209,9 @@ class _ContentScreenState extends State<ContentScreen> {
 
           // Contenido
           if (_loading)
-            const SliverFillRemaining(
-              child: Center(
-                  child: CircularProgressIndicator(color: AppColors.primary)),
+            const SliverPadding(
+              padding: EdgeInsets.all(16),
+              sliver: _SkeletonGallery(),
             )
           else if (_error != null)
             SliverFillRemaining(
@@ -633,7 +605,7 @@ class _UploadCard extends StatelessWidget {
 
 // ─── Video Card ───────────────────────────────────────────────────────────────
 
-class _VideoCard extends StatelessWidget {
+class _VideoCard extends StatefulWidget {
   const _VideoCard({
     required this.video,
     required this.onTap,
@@ -644,14 +616,48 @@ class _VideoCard extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  State<_VideoCard> createState() => _VideoCardState();
+}
+
+class _VideoCardState extends State<_VideoCard> with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 100));
+    _scale = Tween<double>(begin: 1.0, end: 0.95).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final isProcessing = video.isProcessing;
+    final isProcessing = widget.video.isProcessing;
+    final video = widget.video;
+    final artistName = widget.artistName;
 
     return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        decoration: AppColors.glassCard(radius: 12),
-        child: Stack(
+      onTapDown: (_) => _ctrl.forward(),
+      onTapUp: (_) {
+        _ctrl.reverse();
+        widget.onTap();
+      },
+      onTapCancel: () => _ctrl.reverse(),
+      child: AnimatedBuilder(
+        animation: _scale,
+        builder: (context, child) => Transform.scale(
+          scale: _scale.value,
+          child: child,
+        ),
+        child: Container(
+          decoration: AppColors.glassCard(radius: 16),
+          child: Stack(
           children: [
             // Thumbnail
             ClipRRect(
@@ -662,7 +668,7 @@ class _VideoCard extends StatelessWidget {
                       fit: BoxFit.cover,
                       width: double.infinity,
                       height: double.infinity,
-                      errorBuilder: (_, __, ___) =>
+                      errorBuilder: (_, _, _) =>
                           const _ThumbnailFallback(),
                     )
                   : const _ThumbnailFallback(),
@@ -716,7 +722,7 @@ class _VideoCard extends StatelessWidget {
                     // Etiqueta de artista (solo en vista "Todos")
                     if (artistName != null)
                       Text(
-                        artistName!,
+                        artistName,
                         style: const TextStyle(
                             color: AppColors.primary,
                             fontSize: 9,
@@ -750,7 +756,8 @@ class _VideoCard extends StatelessWidget {
           ],
         ),
       ),
-    );
+      ),   // AnimatedBuilder
+    );   // GestureDetector
   }
 }
 
@@ -791,6 +798,60 @@ class _StatusChip extends StatelessWidget {
       child: Text(label,
           style: TextStyle(
               color: color, fontSize: 9, fontWeight: FontWeight.w600)),
+    );
+  }
+}
+class _SkeletonGallery extends StatelessWidget {
+  const _SkeletonGallery();
+
+  @override
+  Widget build(BuildContext context) {
+    return SliverGrid.count(
+      crossAxisCount: 2,
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      childAspectRatio: 0.75,
+      children: List.generate(
+        4,
+        (index) => Container(
+          decoration: BoxDecoration(
+            color: AppColors.bgCard,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 80,
+                      height: 10,
+                      color: Colors.white.withValues(alpha: 0.05),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      width: 40,
+                      height: 10,
+                      color: Colors.white.withValues(alpha: 0.05),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
