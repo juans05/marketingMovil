@@ -8,6 +8,8 @@ import 'core/services/storage_service.dart';
 import 'core/services/app_provider.dart';
 import 'app.dart';
 
+final _navigatorKey = GlobalKey<NavigatorState>();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -28,7 +30,12 @@ void main() async {
   final storage = await StorageService.getInstance();
   final api = ApiService(storage);
   final localNotifier = LocalNotifier();
-  await localNotifier.init();
+  await localNotifier.init(
+    onTap: (_) => _navigatorKey.currentState?.pushNamedAndRemoveUntil(
+      '/dashboard',
+      (route) => false,
+    ),
+  );
 
   final appProvider = AppProvider(storage: storage, api: api);
   appProvider.setLocalNotifier(localNotifier);
@@ -41,7 +48,7 @@ void main() async {
           create: (_) => appProvider.uploadQueue,
         ),
       ],
-      child: const VidalisApp(),
+      child: VidalisApp(navigatorKey: _navigatorKey),
     ),
   );
 }

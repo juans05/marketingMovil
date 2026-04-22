@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/upload_job.dart';
 
@@ -25,6 +26,7 @@ class UploadQueue extends ChangeNotifier {
   void complete() {
     if (_activeJob == null) return;
     _activeJob = _activeJob!.copyWith(status: UploadStatus.done, progress: 1.0);
+    HapticFeedback.mediumImpact();
     notifyListeners();
     Future.delayed(const Duration(seconds: 4), () {
       _activeJob = null;
@@ -38,6 +40,7 @@ class UploadQueue extends ChangeNotifier {
       status: UploadStatus.failed,
       errorMessage: error,
     );
+    HapticFeedback.heavyImpact();
     notifyListeners();
     Future.delayed(const Duration(seconds: 5), () {
       _activeJob = null;

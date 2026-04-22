@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/video_model.dart';
@@ -25,11 +26,12 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
   late TextEditingController _copyCtrl;
   late TextEditingController _hashtagCtrl;
   bool _saving = false;
+  bool _refining = false;
+  bool _publishing = false;
 
   // Publish
   final List<String> _platforms = [];
-  bool _publishing = false;
-  bool _scheduling = false;
+  String _postType = 'reel';
 
   @override
   void initState() {
@@ -68,11 +70,32 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
         'hashtags': hashtags,
       });
       setState(() => _video = updated);
-      if (mounted) _showSnack('Cambios guardados');
+      if (mounted) {
+        HapticFeedback.selectionClick();
+        _showSnack('Cambios guardados');
+      }
     } catch (e) {
       if (mounted) _showSnack('Error: $e', isError: true);
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _refine() async {
+    if (_copyCtrl.text.trim().isEmpty) {
+      _showSnack('Escribe algo primero para humanizarlo', isError: true);
+      return;
+    }
+    setState(() => _refining = true);
+    final prov = context.read<AppProvider>();
+    try {
+      final refined = await prov.api.refineCopy(_copyCtrl.text.trim(), _video.artistId);
+      setState(() => _copyCtrl.text = refined);
+      if (mounted) _showSnack('¡Texto humanizado con éxito!');
+    } catch (e) {
+      if (mounted) _showSnack('Error al humanizar: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _refining = false);
     }
   }
 
@@ -81,38 +104,13 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
       _showSnack('Selecciona al menos una plataforma', isError: true);
       return;
     }
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: AppColors.bgCard,
-        title: const Text('Publicar ahora',
-            style: TextStyle(color: AppColors.textPrimary)),
-        content: Text(
-          'Se publicará en: ${_platforms.join(', ')}',
-          style: const TextStyle(color: AppColors.textSecondary),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar',
-                style: TextStyle(color: AppColors.textSecondary)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Publicar',
-                style: TextStyle(color: AppColors.primary)),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-
     setState(() => _publishing = true);
     final prov = context.read<AppProvider>();
     try {
-      await prov.api.publishNow(_video.id, _platforms);
+      await prov.api.publishNow(_video.id, _platforms, postType: _postType);
       if (mounted) {
-        _showSnack('Publicado exitosamente');
+        HapticFeedback.mediumImpact();
+        _showSnack('¡Publicación en camino! Puede demorar hasta 10 minutos.');
         Navigator.pop(context);
       }
     } catch (e) {
@@ -121,59 +119,6 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
       if (mounted) setState(() => _publishing = false);
     }
   }
-
-  Future<void> _schedule() async {
-    if (_platforms.isEmpty) {
-      _showSnack('Selecciona al menos una plataforma', isError: true);
-      return;
-    }
-
-    final date = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().add(const Duration(days: 1)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-      builder: (ctx, child) => Theme(
-        data: ThemeData.dark().copyWith(
-          colorScheme: const ColorScheme.dark(primary: AppColors.primary),
-        ),
-        child: child!,
-      ),
-    );
-    if (date == null || !mounted) return;
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.now(),
-      builder: (ctx, child) => Theme(
-        data: ThemeData.dark().copyWith(
-          colorScheme: const ColorScheme.dark(primary: AppColors.primary),
-        ),
-        child: child!,
-      ),
-    );
-    if (time == null || !mounted) return;
-
-    final scheduledAt = DateTime(
-        date.year, date.month, date.day, time.hour, time.minute);
-
-    setState(() => _scheduling = true);
-    final prov = context.read<AppProvider>();
-    try {
-      await prov.api.scheduleVideo(_video.id, scheduledAt, _platforms);
-      if (mounted) {
-        _showSnack('Programado para ${_fmtDate(scheduledAt)}');
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      if (mounted) _showSnack('Error: $e', isError: true);
-    } finally {
-      if (mounted) setState(() => _scheduling = false);
-    }
-  }
-
-  String _fmtDate(DateTime dt) =>
-      '${dt.day}/${dt.month}/${dt.year} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
 
   void _showSnack(String msg, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -187,6 +132,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
 
   @override
   Widget build(BuildContext context) {
+    final prov = context.read<AppProvider>();
     return Scaffold(
       backgroundColor: AppColors.bgPrimary,
       appBar: AppBar(
@@ -218,9 +164,13 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
             hashtagCtrl: _hashtagCtrl,
             onSave: _save,
             saving: _saving,
+            onRefine: _refine,
+            refining: _refining,
           ),
           _PublishTab(
+            plan: prov.user?.plan ?? 'Mini',
             platforms: _platforms,
+            postType: _postType,
             onTogglePlatform: (p) {
               setState(() {
                 if (_platforms.contains(p)) {
@@ -230,10 +180,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
                 }
               });
             },
-            onPublishNow: _publishing || _scheduling ? null : _publishNow,
-            onSchedule: _publishing || _scheduling ? null : _schedule,
+            onChangePostType: (t) => setState(() => _postType = t),
+            onPublishNow: _publishing ? null : _publishNow,
             publishing: _publishing,
-            scheduling: _scheduling,
           ),
         ],
       ),
@@ -257,7 +206,7 @@ class _InfoTab extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             child: video.thumbnailUrl != null
                 ? Image.network(video.thumbnailUrl!, fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const _ThumbnailFallback())
+                    errorBuilder: (_, _, _) => const _ThumbnailFallback())
                 : const _ThumbnailFallback(),
           ),
         ),
@@ -327,9 +276,9 @@ class _InfoTab extends StatelessWidget {
                         label: Text('#$h',
                             style: const TextStyle(
                                 color: AppColors.primary, fontSize: 12)),
-                        backgroundColor: AppColors.primary.withOpacity(0.1),
+                        backgroundColor: AppColors.primary.withValues(alpha: 0.1),
                         side: BorderSide(
-                            color: AppColors.primary.withOpacity(0.3)),
+                            color: AppColors.primary.withValues(alpha: 0.3)),
                         visualDensity: VisualDensity.compact,
                       ))
                   .toList(),
@@ -403,12 +352,16 @@ class _EditorTab extends StatelessWidget {
     required this.hashtagCtrl,
     required this.onSave,
     required this.saving,
+    required this.onRefine,
+    required this.refining,
   });
   final TextEditingController titleCtrl;
   final TextEditingController copyCtrl;
   final TextEditingController hashtagCtrl;
   final VoidCallback onSave;
   final bool saving;
+  final VoidCallback onRefine;
+  final bool refining;
 
   @override
   Widget build(BuildContext context) {
@@ -426,6 +379,19 @@ class _EditorTab extends StatelessWidget {
           hint: 'Descripción para redes sociales...',
           controller: copyCtrl,
           maxLines: 5,
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: refining ? null : onRefine,
+            icon: refining 
+              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent))
+              : const Icon(Icons.auto_awesome, size: 16, color: AppColors.accent),
+            label: Text(
+              refining ? 'Humanizando...' : 'Humanizar Texto',
+              style: const TextStyle(color: AppColors.accent, fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
         ),
         const SizedBox(height: 16),
         VidalisInput(
@@ -448,40 +414,92 @@ class _EditorTab extends StatelessWidget {
 
 class _PublishTab extends StatelessWidget {
   const _PublishTab({
+    required this.plan,
     required this.platforms,
+    required this.postType,
     required this.onTogglePlatform,
+    required this.onChangePostType,
     required this.onPublishNow,
-    required this.onSchedule,
     required this.publishing,
-    required this.scheduling,
   });
+  final String plan;
   final List<String> platforms;
+  final String postType;
   final void Function(String) onTogglePlatform;
+  final void Function(String) onChangePostType;
   final VoidCallback? onPublishNow;
-  final VoidCallback? onSchedule;
   final bool publishing;
-  final bool scheduling;
 
   @override
   Widget build(BuildContext context) {
-    final items = [
-      ('tiktok', 'TikTok', Icons.music_note, const Color(0xFF00F2EA)),
-      ('instagram', 'Instagram', Icons.camera_alt, const Color(0xFFE1306C)),
-      ('youtube', 'YouTube', Icons.play_circle_fill, const Color(0xFFFF0000)),
+    final allPlatformItems = [
+      ('tiktok',    'TikTok',    Icons.music_note,       Color(0xFF00F2EA)),
+      ('instagram', 'Instagram', Icons.camera_alt,        Color(0xFFE1306C)),
+      ('youtube',   'YouTube',   Icons.play_circle_fill, Color(0xFFFF0000)),
+    ];
+
+    final isMini = plan == 'Mini';
+    final platformItems = isMini 
+      ? allPlatformItems.where((p) => p.$1 == 'tiktok' || p.$1 == 'instagram').toList()
+      : allPlatformItems;
+
+    const postTypes = [
+      ('reel',  '🎬 Reels'),
+      ('story', '📱 Stories'),
+      ('feed',  '📰 Feed'),
     ];
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        // Tipo de contenido
         const Text(
-          'Seleccionar Plataformas',
-          style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 16,
-              fontWeight: FontWeight.w600),
+          'Tipo de Contenido',
+          style: TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.w600),
         ),
-        const SizedBox(height: 12),
-        ...items.map((item) {
+        const SizedBox(height: 10),
+        Row(
+          children: postTypes.map((item) {
+            final (id, label) = item;
+            final selected = postType == id;
+            return Expanded(
+              child: GestureDetector(
+                onTap: () => onChangePostType(id),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  margin: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: selected ? AppColors.primary.withValues(alpha: 0.15) : AppColors.bgCard,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: selected ? AppColors.primary.withValues(alpha: 0.6) : AppColors.border,
+                      width: selected ? 1.5 : 1,
+                    ),
+                  ),
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: selected ? AppColors.primary : AppColors.textSecondary,
+                      fontSize: 11,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 24),
+
+        // Plataformas
+        const Text(
+          'Plataformas',
+          style: TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 10),
+        ...platformItems.map((item) {
           final (id, label, icon, color) = item;
           final selected = platforms.contains(id);
           return GestureDetector(
@@ -490,10 +508,10 @@ class _PublishTab extends StatelessWidget {
               margin: const EdgeInsets.only(bottom: 10),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
-                color: selected ? color.withOpacity(0.1) : AppColors.bgCard,
+                color: selected ? color.withValues(alpha: 0.1) : AppColors.bgCard,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: selected ? color.withOpacity(0.5) : AppColors.border,
+                  color: selected ? color.withValues(alpha: 0.5) : AppColors.border,
                   width: selected ? 1.5 : 1,
                 ),
               ),
@@ -503,32 +521,22 @@ class _PublishTab extends StatelessWidget {
                   const SizedBox(width: 12),
                   Text(label,
                       style: TextStyle(
-                          color: selected
-                              ? AppColors.textPrimary
-                              : AppColors.textSecondary,
+                          color: selected ? AppColors.textPrimary : AppColors.textSecondary,
                           fontWeight: FontWeight.w500)),
                   const Spacer(),
-                  if (selected)
-                    Icon(Icons.check_circle, color: color, size: 20),
+                  if (selected) Icon(Icons.check_circle, color: color, size: 20),
                 ],
               ),
             ),
           );
         }),
         const SizedBox(height: 24),
+
         VidalisButton(
-          label: 'Publicar Ahora',
+          label: 'Lanzar Ahora',
           onPressed: onPublishNow,
           isLoading: publishing,
           icon: Icons.rocket_launch_outlined,
-        ),
-        const SizedBox(height: 12),
-        VidalisButton(
-          label: 'Programar Publicación',
-          onPressed: onSchedule,
-          isLoading: scheduling,
-          variant: VidalisButtonVariant.outlined,
-          icon: Icons.schedule,
         ),
       ],
     );

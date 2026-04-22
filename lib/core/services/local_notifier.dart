@@ -3,7 +3,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 class LocalNotifier {
   final _plugin = FlutterLocalNotificationsPlugin();
 
-  Future<void> init() async {
+  Future<void> init({void Function(NotificationResponse)? onTap}) async {
     const androidSettings = AndroidInitializationSettings('@mipmap/launcher_icon');
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
@@ -13,6 +13,7 @@ class LocalNotifier {
 
     await _plugin.initialize(
       const InitializationSettings(android: androidSettings, iOS: iosSettings),
+      onDidReceiveNotificationResponse: onTap,
     );
 
     const channel = AndroidNotificationChannel(

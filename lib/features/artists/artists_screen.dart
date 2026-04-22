@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_colors.dart';
@@ -63,9 +64,12 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
       ),
     );
     if (confirmed == true && mounted) {
+      HapticFeedback.mediumImpact();
       final prov = context.read<AppProvider>();
       final ok = await prov.deleteArtist(artist.id);
-      if (!ok && mounted && prov.errorMessage != null) {
+      if (ok) {
+        HapticFeedback.lightImpact();
+      } else if (mounted && prov.errorMessage != null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(prov.errorMessage!),
           backgroundColor: AppColors.danger,
@@ -116,7 +120,7 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
           : ListView.separated(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
               itemCount: artists.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              separatorBuilder: (_, _) => const SizedBox(height: 12),
               itemBuilder: (_, i) {
                 final artist = artists[i];
                 return _ArtistCard(
@@ -157,7 +161,7 @@ class _ArtistCard extends StatelessWidget {
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             leading: CircleAvatar(
               radius: 24,
-              backgroundColor: AppColors.primary.withOpacity(0.2),
+              backgroundColor: AppColors.primary.withValues(alpha: 0.2),
               child: Text(
                 artist.name[0].toUpperCase(),
                 style: const TextStyle(
@@ -183,7 +187,7 @@ class _ArtistCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
+                      color: Colors.white.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Text('Activo',
@@ -366,8 +370,10 @@ class _CreateArtistSheetState extends State<_CreateArtistSheet> {
     );
     if (mounted) {
       if (ok) {
+        HapticFeedback.lightImpact();
         Navigator.pop(context);
       } else {
+        HapticFeedback.heavyImpact();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(prov.errorMessage ?? 'Error al crear artista'),
           backgroundColor: AppColors.danger,

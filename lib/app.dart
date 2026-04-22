@@ -8,11 +8,14 @@ import 'features/dashboard/dashboard_screen.dart';
 import 'shared/widgets/upload_banner.dart';
 
 class VidalisApp extends StatelessWidget {
-  const VidalisApp({super.key});
+  const VidalisApp({super.key, this.navigatorKey});
+
+  final GlobalKey<NavigatorState>? navigatorKey;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'Vidalis.AI',
       debugShowCheckedModeBanner: false,
       builder: (context, child) => Stack(
