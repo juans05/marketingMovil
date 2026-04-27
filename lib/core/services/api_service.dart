@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../constants/api_constants.dart';
 import '../models/user_model.dart';
@@ -34,9 +35,15 @@ class ApiService {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     };
+    
+    // Forzamos la lectura desde el storage para evitar problemas de memoria
     final user = _storage.getUser();
-    if (user?.token != null) {
-      headers['Authorization'] = 'Bearer ${user!.token}';
+    final token = user?.token;
+    
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    } else {
+      debugPrint('⚠️ Alerta: Intentando petición sin token de autenticación');
     }
     return headers;
   }
@@ -179,6 +186,13 @@ class ApiService {
         .toList();
   }
 
+  Future<List<String>> getConfigList(String key) async {
+    final res = await _get(ApiConstants.config(key)) as Map<String, dynamic>;
+    final value = res['value'];
+    if (value is List) return value.cast<String>();
+    return [];
+  }
+
   Future<Map<String, dynamic>> getCloudinarySignature(String folder, String resourceType) async {
     final res = await _get('${ApiConstants.cloudinarySignature}?folder=$folder&resourceType=$resourceType');
     return res as Map<String, dynamic>;
@@ -260,7 +274,7 @@ class ApiService {
     final data = await _post('/api/vidalis/videos/from-url', {
       'artist_id': artistId,
       'remote_url': remoteUrl,
-      if (title != null) 'title': title,
+      'title': ?title,
     });
     return VideoModel.fromJson(data as Map<String, dynamic>);
   }
@@ -271,22 +285,24 @@ class ApiService {
     return VideoModel.fromJson(data as Map<String, dynamic>);
   }
 
+  Future<void> retryVideo(String videoId) async {
+    await _post('/api/vidalis/video/$videoId/retry', {});
+  }
+
+  Future<void> deleteVideo(String videoId) async {
+    await _delete('/api/vidalis/video/$videoId');
+  }
+
   Future<void> publishNow(String videoId, List<String> platforms, {String postType = 'reel'}) async {
     await _post(ApiConstants.publishNow(videoId), {'platforms': platforms, 'postType': postType});
   }
 
-  Future<void> scheduleVideo(
-      String videoId, DateTime scheduledAt, List<String> platforms) async {
-    await _patch(ApiConstants.video(videoId), {
-      'scheduled_at': scheduledAt.toIso8601String(),
-      'platforms': platforms,
-      'status': 'scheduled',
-    });
-  }
-
-  // ─── Stats ───────────────────────────────────────────────────────────────
-  Future<StatsModel> getStats(String agencyId) async {
-    final data = await _get(ApiConstants.stats(agencyId));
+  // ─── Stats ───────────────────────────────────────────────────
+  Future<StatsModel> getStats(String agencyId, {String? artistId}) async {
+    final path = artistId != null
+        ? '${ApiConstants.stats(agencyId)}?artistId=$artistId'
+        : ApiConstants.stats(agencyId);
+    final data = await _get(path);
     return StatsModel.fromJson(data as Map<String, dynamic>);
   }
 
@@ -320,5 +336,35 @@ class ApiService {
 
   Future<void> syncSocialStats(String artistId) async {
     await _post(ApiConstants.socialSync(artistId), {});
+  }
+
+  // ─── Planning / Schedule ──────────────────────────────────────────────────
+  Future<void> scheduleVideo({
+    required String videoId,
+    required DateTime scheduledAt,
+    required List<String> platforms,
+    String format = 'Reel',
+  }) async {
+    await _post(ApiConstants.schedule(videoId), {
+      'scheduled_at': scheduledAt.toUtc().toIso8601String(),
+      'platforms': platforms,
+      'format': format,
+    });
+  }
+
+  Future<int> purchaseSparks(String userId, int amount) async {
+    final data = await _post('/api/vidalis/purchase-sparks', {
+      'userId': userId,
+      'amount': amount,
+    });
+    return (data as Map<String, dynamic>)['newBalance'] as int;
+  }
+
+  Future<Map<String, dynamic>> redeemCoupon(String userId, String code) async {
+    final data = await _post('/api/vidalis/redeem-coupon', {
+      'userId': userId,
+      'code': code,
+    });
+    return data as Map<String, dynamic>;
   }
 }

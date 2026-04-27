@@ -6,6 +6,8 @@ class ApiConstants {
 
   // Auth
   static const String login = '/api/vidalis/login';
+  static const String loginGoogle = '/api/vidalis/google-login';
+  static const String refineCopy = '/api/vidalis/refine-copy';
   static const String createAgency = '/api/vidalis/agencies';
 
   // Artists
@@ -13,6 +15,8 @@ class ApiConstants {
   static const String createArtist = '/api/vidalis/artists';
   static String deleteArtist(String artistId) =>
       '/api/vidalis/artists/$artistId';
+  static String socialSync(String artistId) =>
+      '/api/vidalis/artists/$artistId/sync';
 
   // Content
   static const String upload = '/api/vidalis/upload';
@@ -20,6 +24,8 @@ class ApiConstants {
   static String video(String videoId) => '/api/vidalis/video/$videoId';
   static String publishNow(String videoId) =>
       '/api/vidalis/publish-now/$videoId';
+  static String schedule(String videoId) =>
+      '/api/vidalis/schedule/$videoId';
   static String clips(String parentId) => '/api/vidalis/clips/$parentId';
 
   // Analytics
@@ -32,4 +38,9 @@ class ApiConstants {
       '/api/vidalis/social-status/$artistId';
   static String connectSocial(String artistId) =>
       '/api/vidalis/connect-social/$artistId';
+  // Cloudinary
+  static const String cloudinarySignature = '/api/vidalis/cloudinary-signature';
+
+  // Config pública
+  static String config(String key) => '/api/vidalis/config/$key';
 }

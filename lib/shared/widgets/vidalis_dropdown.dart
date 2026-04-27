@@ -39,7 +39,7 @@ class VidalisDropdown extends StatelessWidget {
           validator: validator,
           onChanged: onChanged,
           isExpanded: true,
-          dropdownColor: AppColors.bgCard,
+          dropdownColor: AppColors.bgInput,
           icon: const Icon(Icons.keyboard_arrow_down_rounded,
               color: AppColors.textMuted, size: 20),
           style: const TextStyle(

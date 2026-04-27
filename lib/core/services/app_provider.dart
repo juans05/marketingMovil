@@ -19,6 +19,7 @@ class AppProvider extends ChangeNotifier {
       : _storage = storage,
         _api = api {
     _uploadQueue = UploadQueue();
+    _uploadQueue.addListener(notifyListeners);
   }
 
   void setLocalNotifier(LocalNotifier notifier) {
@@ -54,6 +55,11 @@ class AppProvider extends ChangeNotifier {
   bool get isAgency => _user?.isAgency ?? false;
   ApiService get api => _api;
   StorageService get storage => _storage;
+
+  // ── Upload queue convenience getters ──────────────────────────────────────
+  bool get isUploading => _uploadQueue.hasActiveJob;
+  double get uploadProgress => _uploadQueue.activeJob?.progress ?? 0.0;
+  String? get currentUploadTitle => _uploadQueue.activeJob?.title;
 
   void _setLoading() {
     _status = AppStatus.loading;
@@ -130,7 +136,7 @@ class AppProvider extends ChangeNotifier {
       return false;
     } catch (e) {
       debugPrint('Google Sign-In Error: $e');
-      _setError('Error al iniciar sesión con Google.');
+      _setError('Error Google: $e');
       return false;
     }
   }
@@ -244,7 +250,7 @@ class AppProvider extends ChangeNotifier {
   Future<StatsModel?> loadStats() async {
     if (_user == null) return null;
     try {
-      _stats = await _api.getStats(_user!.id);
+      _stats = await _api.getStats(_user!.id, artistId: _activeArtist?.id);
       notifyListeners();
       return _stats;
     } catch (_) {
@@ -320,6 +326,7 @@ class AppProvider extends ChangeNotifier {
       status: UploadStatus.preparing,
     );
     _uploadQueue.enqueue(job);
+    _localNotifier?.notifyUploadStarted(title);
 
     // ── Path B: URL remota ─────────────────────────────────────────────────
     if (remoteUrl != null) {
@@ -337,6 +344,7 @@ class AppProvider extends ChangeNotifier {
         _localNotifier?.notifyUploadComplete(title);
       } catch (e) {
         _uploadQueue.fail(e.toString());
+        _localNotifier?.notifyUploadFailed(title, e.toString());
       }
       return;
     }
@@ -394,13 +402,20 @@ class AppProvider extends ChangeNotifier {
         title: title,
       );
 
+      // Descontar sparks localmente
+      if (_user != null) {
+        _user = _user!.copyWith(sparksBalance: _user!.sparksBalance - 10);
+        await _storage.saveUser(_user!);
+      }
+
       await _uploadQueue.clearPending();
       _uploadQueue.complete();
       _localNotifier?.notifyUploadComplete(title);
     } catch (e) {
       _uploadQueue.fail(e.toString());
+      _localNotifier?.notifyUploadFailed(title, e.toString());
     } finally {
-      if (compressedPath != null) {
+      if (compressedPath != null && _uploadQueue.activeJob?.status == UploadStatus.done) {
         final f = File(compressedPath);
         if (await f.exists()) await f.delete();
       }
@@ -432,6 +447,7 @@ class AppProvider extends ChangeNotifier {
       progress: 0.1,
     );
     _uploadQueue.enqueue(job);
+    _localNotifier?.notifyUploadStarted(title);
 
     try {
       final folder = 'vidalis/$artistId';
@@ -455,14 +471,56 @@ class AppProvider extends ChangeNotifier {
       _uploadQueue.update(job);
 
       await _api.registerVideo(artistId: artistId, sourceUrl: secureUrl, title: title);
+      
+      // Descontar sparks localmente
+      if (_user != null) {
+        _user = _user!.copyWith(sparksBalance: _user!.sparksBalance - 10);
+        await _storage.saveUser(_user!);
+      }
+
       await _uploadQueue.clearPending();
       _uploadQueue.complete();
       _localNotifier?.notifyUploadComplete(title);
     } catch (e) {
       _uploadQueue.fail(e.toString());
+      _localNotifier?.notifyUploadFailed(title, e.toString());
     } finally {
-      final f = File(filePath);
-      if (await f.exists()) await f.delete();
+      if (_uploadQueue.activeJob?.status == UploadStatus.done) {
+        final f = File(filePath);
+        if (await f.exists()) await f.delete();
+      }
+    }
+  }
+
+  Future<bool> purchaseSparks(int amount) async {
+    if (_user == null) return false;
+    _setLoading();
+    try {
+      final newBalance = await _api.purchaseSparks(_user!.id, amount);
+      _user = _user!.copyWith(sparksBalance: newBalance);
+      await _storage.saveUser(_user!);
+      _setIdle();
+      return true;
+    } catch (e) {
+      _setError('Error al recargar Sparks: $e');
+      return false;
+    }
+  }
+
+  Future<bool> redeemCoupon(String code) async {
+    if (_user == null) return false;
+    _setLoading();
+    try {
+      final res = await _api.redeemCoupon(_user!.id, code);
+      // Conversión segura de num a int
+      final newBalance = (res['newBalance'] as num).toInt();
+      _user = _user!.copyWith(sparksBalance: newBalance);
+      await _storage.saveUser(_user!);
+      _setIdle();
+      return true;
+    } catch (e) {
+      _setError('Error: $e');
+      return false;
     }
   }
 }

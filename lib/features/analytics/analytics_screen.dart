@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:provider/provider.dart';
+import 'style_settings_screen.dart';
+import '../social/social_connect_screen.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/video_model.dart';
 import '../../core/services/app_provider.dart';
@@ -16,6 +18,7 @@ class AnalyticsScreen extends StatefulWidget {
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   StatsModel? _stats;
   bool _loading = true;
+  bool _auditing = false;
   String? _error;
 
   @override
@@ -40,6 +43,64 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
+  Future<void> _runAudit() async {
+    if (_stats == null) return;
+    
+    final prov = context.read<AppProvider>();
+    final isPro = _stats!.planName != 'Mini';
+
+    if (!isPro) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('La Auditoría Profunda es función del Plan Artista. ¡Sube de nivel!'),
+          backgroundColor: AppColors.accent,
+        ),
+      );
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.bgCard,
+        title: const Text('Auditoría Profunda', style: TextStyle(color: AppColors.textPrimary)),
+        content: const Text(
+          'Vidalis leerá tus últimos 20 posts de Instagram para aprender qué te funciona mejor. ¿Permitir acceso?',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Ahora no')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Empezar Auditoría'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _auditing = true);
+    try {
+      await prov.runDeepAudit(allowFullAudit: true);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Auditoría completada. ADN Creativo actualizado.'), backgroundColor: AppColors.success),
+        );
+        _load();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.danger),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _auditing = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
@@ -53,14 +114,50 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               ? _ErrorView(error: _error!, onRetry: _load)
               : _stats == null
                   ? _EmptyView(onRetry: _load)
-                  : _Content(stats: _stats!),
+                  : Stack(
+                      children: [
+                        _Content(stats: _stats!, onAudit: _runAudit),
+                        if (_auditing)
+                          Container(
+                            color: Colors.black54,
+                            child: const Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CircularProgressIndicator(color: AppColors.primary),
+                                  SizedBox(height: 16),
+                                  Text('Analizando historial...', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
     );
   }
 }
 
 class _Content extends StatelessWidget {
-  const _Content({required this.stats});
+  const _Content({required this.stats, required this.onAudit});
   final StatsModel stats;
+  final VoidCallback onAudit;
+
+  void _showHelp(BuildContext context, String title, String message) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.bgCard,
+        title: Text(title, style: const TextStyle(color: AppColors.textPrimary)),
+        content: Text(message, style: const TextStyle(color: AppColors.textSecondary)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Entendido', style: TextStyle(color: AppColors.primary)),
+          ),
+        ],
+      ),
+    );
+  }
 
   String _fmt(int n) {
     if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
@@ -74,8 +171,72 @@ class _Content extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
       children: [
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          runSpacing: 8,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Estadísticas Reales',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => _showHelp(context, 'Métricas Reales', 
+                    'Estas son las métricas acumuladas de todas tus redes conectadas. Se actualizan automáticamente cada vez que abres la app.'),
+                  icon: const Icon(Icons.info_outline, size: 16, color: AppColors.textMuted),
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: stats.totalFollowers == 0 
+                    ? () => context.read<AppProvider>().syncStats() 
+                    : () => context.read<AppProvider>().loadStats(), 
+                  icon: const Icon(Icons.refresh, size: 20, color: AppColors.textMuted),
+                  tooltip: 'Actualizar datos',
+                ),
+              ],
+            ),
+            Wrap(
+              spacing: 8,
+              children: [
+                TextButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const StyleSettingsScreen()),
+                  ),
+                  icon: const Icon(Icons.psychology, size: 18, color: AppColors.accent),
+                  label: const Text('Estilo',
+                      style: TextStyle(color: AppColors.accent, fontSize: 13, fontWeight: FontWeight.w600)),
+                  style: TextButton.styleFrom(
+                    backgroundColor: AppColors.accent.withValues(alpha: 0.1),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: onAudit,
+                  icon: const Icon(Icons.auto_awesome, size: 18, color: AppColors.primary),
+                  label: const Text('Auditoría',
+                      style: TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.w600)),
+                  style: TextButton.styleFrom(
+                    backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
         // KPI grid
         GridView.count(
           crossAxisCount: 2,
@@ -104,51 +265,197 @@ class _Content extends StatelessWidget {
               icon: Icons.video_library_outlined,
               iconColor: AppColors.success,
             ),
-            StatCard(
-              label: 'Viral Score Avg',
-              value: stats.avgViralScore.toStringAsFixed(1),
-              icon: Icons.auto_awesome,
-              iconColor: AppColors.warning,
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: AppColors.glassCard(),
+              child: Stack(
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Viral Score',
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w500),
+                      ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            stats.avgViralScore.toStringAsFixed(1),
+                            style: TextStyle(
+                              color: AppColors.viralScoreColor(stats.avgViralScore),
+                              fontSize: 28,
+                              fontWeight: FontWeight.w900,
+                              shadows: [
+                                BoxShadow(color: AppColors.viralScoreColor(stats.avgViralScore).withValues(alpha: 0.5), blurRadius: 12)
+                              ],
+                            ),
+                          ),
+                          const Text('/10', style: TextStyle(color: AppColors.textMuted, fontSize: 14)),
+                        ],
+                      ),
+                    ],
+                  ),
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: Icon(
+                      stats.avgViralScore >= 8 ? Icons.diamond : Icons.local_fire_department,
+                      color: AppColors.viralScoreColor(stats.avgViralScore),
+                      size: 28,
+                    ),
+                  )
+                ],
+              ),
             ),
           ],
         ),
         const SizedBox(height: 24),
         // Growth chart
-        if (stats.growthData.isNotEmpty) ...[
-          const Text(
-            'Crecimiento de Seguidores',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
+        Row(
+          children: [
+            const Text(
+              'Crecimiento de Seguidores',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
+            IconButton(
+              onPressed: () => _showHelp(context, 'Crecimiento', 
+                'Este gráfico muestra la tendencia de tus seguidores en los últimos 7 días combinando todas tus plataformas.'),
+              icon: const Icon(Icons.info_outline, size: 14, color: AppColors.textMuted),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if ((stats.totalFollowers > 0 || stats.totalViews > 0) && stats.growthData.isNotEmpty)
           Container(
             height: 200,
             padding: const EdgeInsets.all(16),
             decoration: AppColors.glassCard(),
             child: _GrowthChart(data: stats.growthData),
+          )
+        else if (context.read<AppProvider>().activeArtist?.activePlatforms.isNotEmpty ?? false)
+          _GatheringDataCard()
+        else
+          _ConnectSocialsCard(),
+        const SizedBox(height: 32),
+        // Desglose de Interacciones (Nuevo indicador útil)
+        if (stats.totalLikes > 0 || stats.totalComments > 0) ...[
+          Row(
+            children: [
+              const Text(
+                'Interacciones Totales',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              IconButton(
+                onPressed: () => _showHelp(context, 'Interacciones', 
+                  'Suma de todos los Likes, Comentarios, Compartidos y Guardados de tus publicaciones.'),
+                icon: const Icon(Icons.info_outline, size: 14, color: AppColors.textMuted),
+              ),
+            ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 12),
+          _InteractionsBreakdown(stats: stats),
         ],
-        // Platform breakdown
-        const Text(
-          'Por Plataforma',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
+        const SizedBox(height: 32),
+        // Distribución por Red Social — solo cuando hay más de una plataforma
+        if (stats.platformBreakdown.length > 1) ...[
+          Row(
+            children: [
+              const Text(
+                'Rendimiento por Red Social',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              IconButton(
+                onPressed: () => _showHelp(context, 'Rendimiento', 
+                  'Aquí ves qué red social te está dando más resultados (alcance y vistas).'),
+                icon: const Icon(Icons.info_outline, size: 14, color: AppColors.textMuted),
+              ),
+            ],
           ),
-        ),
-        const SizedBox(height: 12),
-        _PlatformBreakdown(
-          tiktok: stats.growthData.fold(0, (s, e) => s + (e.views ~/ 3)),
-          instagram: stats.growthData.fold(0, (s, e) => s + (e.views ~/ 3)),
-          youtube: stats.growthData.fold(0, (s, e) => s + (e.views ~/ 3)),
-          total: stats.totalViews,
-        ),
+          const SizedBox(height: 12),
+          _PlatformBreakdown(
+            breakdown: stats.platformBreakdown,
+            total: stats.totalViews,
+          ),
+        ],
       ],
+    );
+  }
+}
+
+class _ConnectSocialsCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: AppColors.glassCard(),
+      child: Column(
+        children: [
+          const Icon(Icons.link_off, color: AppColors.textMuted, size: 36),
+          const SizedBox(height: 12),
+          const Text(
+            'Sin datos de seguidores',
+            style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 15),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Conecta tus redes sociales para ver el crecimiento real de tu audiencia.',
+            style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 14),
+          TextButton.icon(
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SocialConnectScreen())),
+            icon: const Icon(Icons.share, size: 16, color: AppColors.primary),
+            label: const Text('Conectar Redes', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600)),
+            style: TextButton.styleFrom(
+              backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GatheringDataCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: AppColors.glassCard(),
+      child: const Column(
+        children: [
+          Icon(Icons.hourglass_empty, color: AppColors.accent, size: 36),
+          SizedBox(height: 12),
+          Text(
+            'Recolectando Datos',
+            style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 15),
+          ),
+          SizedBox(height: 6),
+          Text(
+            '¡Tus redes están conectadas! Vidalis está consolidando tu base de datos de seguidores históricos. Toma hasta 24 horas.',
+            style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -191,8 +498,8 @@ class _GrowthChart extends StatelessWidget {
               show: true,
               gradient: LinearGradient(
                 colors: [
-                  AppColors.primary.withOpacity(0.3),
-                  AppColors.primary.withOpacity(0),
+                  AppColors.primary.withValues(alpha: 0.3),
+                  AppColors.primary.withValues(alpha: 0),
                 ],
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
@@ -205,32 +512,120 @@ class _GrowthChart extends StatelessWidget {
   }
 }
 
+class _InteractionsBreakdown extends StatelessWidget {
+  const _InteractionsBreakdown({required this.stats});
+  final StatsModel stats;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: AppColors.glassCard(),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _InteractionItem(
+            label: 'Likes',
+            value: stats.totalLikes,
+            icon: Icons.favorite_border,
+            color: Colors.redAccent,
+          ),
+          _InteractionItem(
+            label: 'Coments',
+            value: stats.totalComments,
+            icon: Icons.chat_bubble_outline,
+            color: Colors.blueAccent,
+          ),
+          _InteractionItem(
+            label: 'Shares',
+            value: stats.totalShares,
+            icon: Icons.ios_share,
+            color: Colors.greenAccent,
+          ),
+          _InteractionItem(
+            label: 'Saves',
+            value: stats.totalSaves,
+            icon: Icons.bookmark_border,
+            color: Colors.orangeAccent,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InteractionItem extends StatelessWidget {
+  const _InteractionItem({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+  final String label;
+  final int value;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(height: 8),
+        Text(
+          value >= 1000 ? '${(value / 1000).toStringAsFixed(1)}K' : value.toString(),
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 10,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _PlatformBreakdown extends StatelessWidget {
   const _PlatformBreakdown({
-    required this.tiktok,
-    required this.instagram,
-    required this.youtube,
+    required this.breakdown,
     required this.total,
   });
-  final int tiktok;
-  final int instagram;
-  final int youtube;
+  final Map<String, int> breakdown;
   final int total;
 
   @override
   Widget build(BuildContext context) {
-    final items = [
-      ('TikTok', tiktok, const Color(0xFF00F2EA)),
-      ('Instagram', instagram, const Color(0xFFE1306C)),
-      ('YouTube', youtube, const Color(0xFFFF0000)),
-    ];
+    // Definimos colores para las plataformas conocidas
+    const platformColors = {
+      'tiktok': Color(0xFF00F2EA),
+      'instagram': Color(0xFFE1306C),
+      'youtube': Color(0xFFFF0000),
+      'facebook': Color(0xFF1877F2),
+    };
+
+    // Si el breakdown está vacío, no mostramos nada o un mensaje
+    if (breakdown.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: AppColors.glassCard(),
       child: Column(
-        children: items.map((item) {
-          final (name, value, color) = item;
+        children: breakdown.entries.map((entry) {
+          final name = entry.key;
+          final value = entry.value;
+          final color = platformColors[name.toLowerCase()] ?? AppColors.primary;
           final ratio = total > 0 ? value / total : 0.0;
+          
           return Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: Column(
@@ -239,7 +634,7 @@ class _PlatformBreakdown extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(name,
+                    Text(name[0].toUpperCase() + name.substring(1),
                         style: const TextStyle(
                             color: AppColors.textPrimary, fontSize: 13)),
                     Text('${(ratio * 100).toStringAsFixed(0)}%',
@@ -265,6 +660,7 @@ class _PlatformBreakdown extends StatelessWidget {
     );
   }
 }
+
 
 class _ErrorView extends StatelessWidget {
   const _ErrorView({required this.error, required this.onRetry});

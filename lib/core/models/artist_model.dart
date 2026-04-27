@@ -24,13 +24,24 @@ class ArtistModel {
     this.aiGenre,
     this.aiAudience,
     this.aiTone,
-  });
+    List<String> activePlatformsOverride = const [],
+  }) : _activePlatformsOverride = activePlatformsOverride;
 
-  bool get hasTiktok => tiktokUrl != null && tiktokUrl!.isNotEmpty;
-  bool get hasInstagram => instagramUrl != null && instagramUrl!.isNotEmpty;
-  bool get hasYoutube => youtubeUrl != null && youtubeUrl!.isNotEmpty;
+  // active_platforms es el campo autoritativo del backend (ej: ['tiktok','instagram'])
+  final List<String> _activePlatformsOverride;
+
+  bool get hasTiktok =>
+      _activePlatformsOverride.contains('tiktok') ||
+      (tiktokUrl != null && tiktokUrl!.isNotEmpty);
+  bool get hasInstagram =>
+      _activePlatformsOverride.contains('instagram') ||
+      (instagramUrl != null && instagramUrl!.isNotEmpty);
+  bool get hasYoutube =>
+      _activePlatformsOverride.contains('youtube') ||
+      (youtubeUrl != null && youtubeUrl!.isNotEmpty);
 
   List<String> get activePlatforms {
+    if (_activePlatformsOverride.isNotEmpty) return _activePlatformsOverride;
     final list = <String>[];
     if (hasTiktok) list.add('tiktok');
     if (hasInstagram) list.add('instagram');
@@ -39,6 +50,10 @@ class ArtistModel {
   }
 
   factory ArtistModel.fromJson(Map<String, dynamic> json) {
+    final rawPlatforms = json['active_platforms'];
+    final platforms = rawPlatforms is List
+        ? rawPlatforms.map((e) => e.toString()).toList()
+        : <String>[];
     return ArtistModel(
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? '',
@@ -51,6 +66,7 @@ class ArtistModel {
       aiGenre: json['ai_genre']?.toString(),
       aiAudience: json['ai_audience']?.toString(),
       aiTone: json['ai_tone']?.toString(),
+      activePlatformsOverride: platforms,
     );
   }
 

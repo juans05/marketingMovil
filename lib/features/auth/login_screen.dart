@@ -23,6 +23,7 @@ class _LoginScreenState extends State<LoginScreen>
   final _nameCtrl = TextEditingController();
   final _regEmailCtrl = TextEditingController();
   final _regPasswordCtrl = TextEditingController();
+  final _birthDateCtrl = TextEditingController();
 
   bool _obscureLogin = true;
   bool _obscureReg = true;
@@ -41,6 +42,7 @@ class _LoginScreenState extends State<LoginScreen>
     _nameCtrl.dispose();
     _regEmailCtrl.dispose();
     _regPasswordCtrl.dispose();
+    _birthDateCtrl.dispose();
     super.dispose();
   }
 
@@ -55,18 +57,59 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
+  Future<void> _loginWithGoogle(AppProvider prov) async {
+    final ok = await prov.loginWithGoogle();
+    if (ok && mounted) {
+      Navigator.of(context).pushReplacementNamed('/dashboard');
+    } else if (mounted && prov.errorMessage != null) {
+      _showError(prov.errorMessage!);
+      prov.clearError();
+    }
+  }
+
   Future<void> _register(AppProvider prov) async {
     if (!_registerForm.currentState!.validate()) return;
     final ok = await prov.register(
       _nameCtrl.text.trim(),
       _regEmailCtrl.text.trim(),
       _regPasswordCtrl.text,
+      _birthDateCtrl.text,
     );
     if (ok && mounted) {
       Navigator.of(context).pushReplacementNamed('/dashboard');
     } else if (mounted && prov.errorMessage != null) {
       _showError(prov.errorMessage!);
       prov.clearError();
+    }
+  }
+
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().subtract(const Duration(days: 365 * 18)),
+      firstDate: DateTime(1900),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.primary,
+              onPrimary: Colors.white,
+              surface: AppColors.bgCard,
+              onSurface: Colors.white,
+            ),
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(foregroundColor: AppColors.primary),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() {
+        _birthDateCtrl.text = picked.toIso8601String().split('T')[0];
+      });
     }
   }
 
@@ -80,40 +123,6 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  void _showApiConfig(AppProvider prov) {
-    final ctrl = TextEditingController(text: prov.api.baseUrl);
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: AppColors.bgCard,
-        title: const Text('Servidor API',
-            style: TextStyle(color: AppColors.textPrimary)),
-        content: TextField(
-          controller: ctrl,
-          style: const TextStyle(color: AppColors.textPrimary),
-          decoration: const InputDecoration(
-            hintText: 'https://...',
-            hintStyle: TextStyle(color: AppColors.textMuted),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar',
-                style: TextStyle(color: AppColors.textSecondary)),
-          ),
-          TextButton(
-            onPressed: () {
-              prov.api.updateBaseUrl(ctrl.text.trim());
-              Navigator.pop(context);
-            },
-            child: const Text('Guardar',
-                style: TextStyle(color: AppColors.primary)),
-          ),
-        ],
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -149,7 +158,7 @@ class _LoginScreenState extends State<LoginScreen>
                   fontSize: 14,
                 ),
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 32),
               // Tab bar
               Container(
                 decoration: BoxDecoration(
@@ -176,7 +185,7 @@ class _LoginScreenState extends State<LoginScreen>
               ),
               const SizedBox(height: 28),
               SizedBox(
-                height: 340,
+                height: 520,
                 child: TabBarView(
                   controller: _tab,
                   children: [
@@ -188,6 +197,7 @@ class _LoginScreenState extends State<LoginScreen>
                       onToggleObscure: () =>
                           setState(() => _obscureLogin = !_obscureLogin),
                       onSubmit: () => _login(prov),
+                      onGoogleLogin: () => _loginWithGoogle(prov),
                       isLoading: prov.isLoading,
                     ),
                     _RegisterForm(
@@ -195,25 +205,16 @@ class _LoginScreenState extends State<LoginScreen>
                       nameCtrl: _nameCtrl,
                       emailCtrl: _regEmailCtrl,
                       passwordCtrl: _regPasswordCtrl,
+                      birthDateCtrl: _birthDateCtrl,
+                      onSelectDate: () => _selectDate(context),
                       obscure: _obscureReg,
                       onToggleObscure: () =>
                           setState(() => _obscureReg = !_obscureReg),
                       onSubmit: () => _register(prov),
+                      onGoogleLogin: () => _loginWithGoogle(prov),
                       isLoading: prov.isLoading,
                     ),
                   ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              GestureDetector(
-                onTap: () => _showApiConfig(prov),
-                child: const Text(
-                  'Configurar servidor API',
-                  style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 13,
-                    decoration: TextDecoration.underline,
-                  ),
                 ),
               ),
               const SizedBox(height: 24),
@@ -233,6 +234,7 @@ class _LoginForm extends StatelessWidget {
     required this.obscure,
     required this.onToggleObscure,
     required this.onSubmit,
+    required this.onGoogleLogin,
     required this.isLoading,
   });
 
@@ -242,6 +244,7 @@ class _LoginForm extends StatelessWidget {
   final bool obscure;
   final VoidCallback onToggleObscure;
   final VoidCallback onSubmit;
+  final VoidCallback onGoogleLogin;
   final bool isLoading;
 
   @override
@@ -284,6 +287,46 @@ class _LoginForm extends StatelessWidget {
             isLoading: isLoading,
             icon: Icons.login,
           ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              const Expanded(child: Divider(color: AppColors.border, thickness: 1)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text('o usa', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+              ),
+              const Expanded(child: Divider(color: AppColors.border, thickness: 1)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: OutlinedButton(
+              onPressed: isLoading ? null : onGoogleLogin,
+              style: OutlinedButton.styleFrom(
+                backgroundColor: Colors.white,
+                side: const BorderSide(color: Colors.white),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 2,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Image.network(
+                    'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/1024px-Google_%22G%22_logo.svg.png',
+                    height: 22,
+                    errorBuilder: (_, _, _) => const Icon(Icons.g_mobiledata, color: Colors.blue),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'Continuar con Google',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1F1F1F)),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -296,9 +339,12 @@ class _RegisterForm extends StatelessWidget {
     required this.nameCtrl,
     required this.emailCtrl,
     required this.passwordCtrl,
+    required this.birthDateCtrl,
+    required this.onSelectDate,
     required this.obscure,
     required this.onToggleObscure,
     required this.onSubmit,
+    required this.onGoogleLogin,
     required this.isLoading,
   });
 
@@ -306,9 +352,12 @@ class _RegisterForm extends StatelessWidget {
   final TextEditingController nameCtrl;
   final TextEditingController emailCtrl;
   final TextEditingController passwordCtrl;
+  final TextEditingController birthDateCtrl;
+  final VoidCallback onSelectDate;
   final bool obscure;
   final VoidCallback onToggleObscure;
   final VoidCallback onSubmit;
+  final VoidCallback onGoogleLogin;
   final bool isLoading;
 
   @override
@@ -318,10 +367,21 @@ class _RegisterForm extends StatelessWidget {
       child: Column(
         children: [
           VidalisInput(
-            label: 'Nombre de agencia',
-            hint: 'Mi Agencia',
+            label: 'Tu Nombre Completo',
+            hint: 'Ej: Juan Pérez',
             controller: nameCtrl,
-            prefixIcon: Icons.business_outlined,
+            prefixIcon: Icons.person_outline,
+            validator: (v) =>
+                v == null || v.trim().isEmpty ? 'Requerido' : null,
+          ),
+          const SizedBox(height: 12),
+          VidalisInput(
+            label: 'Fecha de nacimiento',
+            hint: 'AAAA-MM-DD',
+            controller: birthDateCtrl,
+            prefixIcon: Icons.calendar_today_outlined,
+            readOnly: true,
+            onTap: onSelectDate,
             validator: (v) =>
                 v == null || v.trim().isEmpty ? 'Requerido' : null,
           ),
@@ -359,6 +419,46 @@ class _RegisterForm extends StatelessWidget {
             onPressed: isLoading ? null : onSubmit,
             isLoading: isLoading,
             icon: Icons.person_add_outlined,
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              const Expanded(child: Divider(color: AppColors.border, thickness: 1)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text('o registrate con', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+              ),
+              const Expanded(child: Divider(color: AppColors.border, thickness: 1)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: OutlinedButton(
+              onPressed: isLoading ? null : onGoogleLogin,
+              style: OutlinedButton.styleFrom(
+                backgroundColor: Colors.white,
+                side: const BorderSide(color: Colors.white),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 2,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Image.network(
+                    'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/1024px-Google_%22G%22_logo.svg.png',
+                    height: 22,
+                    errorBuilder: (_, _, _) => const Icon(Icons.g_mobiledata, color: Colors.blue),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'Continuar con Google',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1F1F1F)),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),

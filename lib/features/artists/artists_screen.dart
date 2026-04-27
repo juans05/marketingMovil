@@ -233,6 +233,7 @@ class _SocialSection extends StatefulWidget {
 class _SocialSectionState extends State<_SocialSection> {
   Map<String, bool> _status = {};
   bool _loading = false;
+  bool _connecting = false;
 
   @override
   void initState() {
@@ -241,7 +242,7 @@ class _SocialSectionState extends State<_SocialSection> {
   }
 
   Future<void> _loadStatus({bool refresh = false}) async {
-    setState(() => _loading = true);
+    if (mounted) setState(() => _loading = true);
     try {
       final prov = context.read<AppProvider>();
       final status = await prov.api.getSocialStatus(
@@ -256,14 +257,22 @@ class _SocialSectionState extends State<_SocialSection> {
   }
 
   Future<void> _connect() async {
+    if (mounted) setState(() => _connecting = true);
     final prov = context.read<AppProvider>();
     try {
       final url = await prov.api.getConnectSocialUrl(widget.artist.id);
-      final uri = Uri.tryParse(url);
-      if (uri != null && await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-        // Refrescar estado desde el backend al volver del navegador
-        if (mounted) await _loadStatus(refresh: true);
+      final uri = Uri.parse(url);
+      
+      final launched = await launchUrl(
+        uri, 
+        mode: LaunchMode.externalApplication,
+      );
+      
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('No se pudo abrir el navegador. Link: $url'),
+          backgroundColor: AppColors.danger,
+        ));
       }
     } catch (e) {
       if (mounted) {
@@ -273,6 +282,8 @@ class _SocialSectionState extends State<_SocialSection> {
           behavior: SnackBarBehavior.floating,
         ));
       }
+    } finally {
+      if (mounted) setState(() => _connecting = false);
     }
   }
 
@@ -309,7 +320,8 @@ class _SocialSectionState extends State<_SocialSection> {
         const SizedBox(height: 10),
         VidalisButton(
           label: 'Conectar Redes',
-          onPressed: _connect,
+          onPressed: _connecting ? null : _connect,
+          isLoading: _connecting,
           variant: VidalisButtonVariant.outlined,
           icon: Icons.link,
         ),
@@ -332,21 +344,21 @@ class _CreateArtistSheetState extends State<_CreateArtistSheet> {
   String? _selectedGenre;
   String? _selectedTone;
   bool _saving = false;
+  List<String> _genreOptions = [];
+  List<String> _toneOptions = [];
 
-  static const _genreOptions = [
-    'Reggaeton / Urbano', 'Pop / Comercial', 'Hip-Hop / Trap',
-    'Electronic / EDM', 'Rock / Alternative', 'Indie / Singer-Songwriter',
-    'R&B / Soul', 'Jazz / Blues', 'Classical / Cinematic',
-    'Folk / Country', 'Podcast / Talk Show', 'Gaming / Tutorial',
-    'Lifestyle / Vlogging',
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadOptions();
+  }
 
-  static const _toneOptions = [
-    'Energético / High-Energy', 'Inspiracional / Motivating',
-    'Profesional / Authoritative', 'Divertido / Humorístico',
-    'Lujoso / Premium', 'Auténtico / Raw', 'Educativo / Informative',
-    'Provocativo / Edgy', 'Minimalista / Clean', 'Emocional / Deep',
-  ];
+  Future<void> _loadOptions() async {
+    final api = context.read<AppProvider>().api;
+    final genres = await api.getConfigList('genre_options');
+    final tones = await api.getConfigList('tone_options');
+    if (mounted) setState(() { _genreOptions = genres; _toneOptions = tones; });
+  }
 
   @override
   void dispose() {

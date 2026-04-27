@@ -11,6 +11,7 @@ import '../../shared/widgets/vidalis_input.dart';
 import '../../shared/widgets/vidalis_dropdown.dart';
 import 'video_detail_screen.dart';
 import 'video_source_picker.dart';
+import '../planning/planning_screen.dart';
 
 class ContentScreen extends StatefulWidget {
   const ContentScreen({super.key});
@@ -30,6 +31,7 @@ class _ContentScreenState extends State<ContentScreen> {
 
   // Control para no recargar si los artistas/activeArtist no cambiaron
   String? _lastLoadedKey;
+  bool _wasUploading = false;
 
   @override
   void didChangeDependencies() {
@@ -37,6 +39,12 @@ class _ContentScreenState extends State<ContentScreen> {
     final prov = context.watch<AppProvider>();
     final artists = prov.artists;
     final active = prov.activeArtist;
+
+    // Recarga automática si acaba de terminar una subida
+    if (_wasUploading && !prov.isUploading) {
+      _load(prov);
+    }
+    _wasUploading = prov.isUploading;
 
     // Construir una clave que represente el estado actual
     final key = '${active?.id}_${artists.map((a) => a.id).join(',')}';
@@ -157,6 +165,56 @@ class _ContentScreenState extends State<ContentScreen> {
     );
   }
 
+  Future<void> _handleVideoTap(VideoModel video) async {
+    if (!video.isReady) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => VideoDetailScreen(video: video)),
+      );
+      _load();
+      return;
+    }
+
+    final action = await showModalBottomSheet<_VideoAction>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _VideoActionSheet(video: video),
+    );
+
+    if (!mounted || action == null) return;
+
+    if (action == _VideoAction.detail) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => VideoDetailScreen(video: video)),
+      );
+      _load();
+    } else if (action == _VideoAction.schedule) {
+      final prov = context.read<AppProvider>();
+      final readyVideos = _entries
+          .where((e) => e.video.isReady)
+          .map((e) => e.video)
+          .toList();
+      await showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => ScheduleSheet(
+          date: DateTime.now(),
+          scheduledVideos: const [],
+          readyVideos: readyVideos,
+          allVideos: _entries.map((e) => e.video).toList(),
+          artistId: prov.activeArtist?.id ?? '',
+          api: prov.api,
+          activePlatforms: prov.activeArtist?.activePlatforms ?? [],
+          onSaved: _load,
+          preselectedVideo: video,
+        ),
+      );
+      _load();
+    }
+  }
+
   void _showSnack(String msg, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -184,9 +242,11 @@ class _ContentScreenState extends State<ContentScreen> {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
               child: _UploadCard(
-                uploading: false,
-                progress: 0,
-                onPick: _openSourcePicker,
+                uploading: prov.isUploading,
+                progress: prov.uploadProgress,
+                statusLabel: prov.uploadQueue.activeJob?.statusLabel,
+                uploadTitle: prov.currentUploadTitle,
+                onPick: prov.isUploading ? null : _openSourcePicker,
               ),
             ),
           ),
@@ -271,13 +331,7 @@ class _ContentScreenState extends State<ContentScreen> {
                     .map((e) => _VideoCard(
                           video: e.video,
                           artistName: e.artist?.name,
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  VideoDetailScreen(video: e.video),
-                            ),
-                          ).then((_) => _load()),
+                          onTap: () => _handleVideoTap(e.video),
                         ))
                     .toList(),
               ),
@@ -309,11 +363,15 @@ class _CreateFirstArtistPanelState extends State<_CreateFirstArtistPanel> {
   bool _saving = false;
 
   static const _genreOptions = [
-    'Reggaeton / Urbano', 'Pop / Comercial', 'Hip-Hop / Trap',
-    'Electronic / EDM', 'Rock / Alternative', 'Indie / Singer-Songwriter',
-    'R&B / Soul', 'Jazz / Blues', 'Classical / Cinematic',
-    'Folk / Country', 'Podcast / Talk Show', 'Gaming / Tutorial',
-    'Lifestyle / Vlogging',
+    'Marketing Digital / Agencia', 'Real Estate / Inmobiliaria',
+    'Gastronomía / Restaurantes', 'E-commerce / Ventas Online',
+    'Marca Personal / Influencer', 'Salud / Bienestar / Fitness',
+    'Educación / Cursos Online', 'Moda / Belleza / Estilo',
+    'Viajes / Turismo / Hotelería', 'Finanzas / Inversiones',
+    'Consultoría / Servicios B2B', 'Noticias / Actualidad',
+    'Reggaeton / Urbano / Soul', 'Pop / Comercial / Rock',
+    'Electronic / EDM / Jazz', 'Hip-Hop / Trap / Indie',
+    'Gaming / Tecnología', 'Leyendas / Historias / Podcast',
   ];
 
   static const _toneOptions = [
@@ -529,16 +587,19 @@ class _FilterChip extends StatelessWidget {
 }
 
 // ─── Upload Card ──────────────────────────────────────────────────────────────
-
 class _UploadCard extends StatelessWidget {
   const _UploadCard({
     required this.uploading,
     required this.progress,
-    required this.onPick,
+    this.statusLabel,
+    this.uploadTitle,
+    this.onPick,
   });
 
   final bool uploading;
   final double progress;
+  final String? statusLabel;
+  final String? uploadTitle;
   final VoidCallback? onPick;
 
   @override
@@ -558,9 +619,16 @@ class _UploadCard extends StatelessWidget {
       child: Column(
         children: [
           if (uploading) ...[
-            const Text('Subiendo video...',
-                style:
-                    TextStyle(color: AppColors.textPrimary, fontSize: 14)),
+            const Icon(Icons.cloud_upload, color: AppColors.primary, size: 28),
+            const SizedBox(height: 8),
+            Text(
+              statusLabel != null 
+                  ? '$statusLabel: ${uploadTitle ?? "Video"}' 
+                  : (uploadTitle != null ? 'Procesando: $uploadTitle' : 'Procesando video...'),
+              style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             const SizedBox(height: 10),
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
@@ -687,7 +755,10 @@ class _VideoCardState extends State<_VideoCard> with SingleTickerProviderStateMi
                       CircularProgressIndicator(
                           color: AppColors.accent, strokeWidth: 2),
                       SizedBox(height: 8),
-                      Text('IA procesando',
+                      Text('Analizando',
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                               color: Colors.white,
                               fontSize: 11,
@@ -782,10 +853,11 @@ class _StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (label, color) = switch (status) {
-      'published' => ('Publicado', AppColors.success),
-      'scheduled' => ('Programado', AppColors.warning),
-      'ready' => ('Listo', AppColors.info),
-      _ => ('Procesando', AppColors.textMuted),
+      'published'                => ('Publicado',  AppColors.success),
+      'scheduled'                => ('Programado', AppColors.warning),
+      'ready' || 'needs_review'  => ('Analizado',  AppColors.info),
+      'error'                    => ('Error IA',   AppColors.danger),
+      _                          => ('Procesando', AppColors.textMuted),
     };
 
     return Container(
@@ -850,6 +922,143 @@ class _SkeletonGallery extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+enum _VideoAction { detail, schedule }
+
+class _VideoActionSheet extends StatelessWidget {
+  const _VideoActionSheet({required this.video});
+  final VideoModel video;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.bgCard,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 36),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              if (video.thumbnailUrl != null)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    video.thumbnailUrl!,
+                    width: 48,
+                    height: 48,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => const Icon(
+                        Icons.video_file,
+                        color: AppColors.primary,
+                        size: 28),
+                  ),
+                )
+              else
+                const Icon(Icons.video_file, color: AppColors.primary, size: 28),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  video.title ?? 'Sin título',
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          _ActionTile(
+            icon: Icons.calendar_month_outlined,
+            label: 'Programar publicación',
+            subtitle: 'Elige fecha, hora y plataformas',
+            color: AppColors.primary,
+            onTap: () => Navigator.pop(context, _VideoAction.schedule),
+          ),
+          const SizedBox(height: 10),
+          _ActionTile(
+            icon: Icons.info_outline,
+            label: 'Ver detalles',
+            subtitle: 'Editar copy, hashtags y publicar',
+            color: AppColors.textSecondary,
+            onTap: () => Navigator.pop(context, _VideoAction.detail),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActionTile extends StatelessWidget {
+  const _ActionTile({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: AppColors.bgSecondary,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: TextStyle(
+                          color: color,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 2),
+                  Text(subtitle,
+                      style: const TextStyle(
+                          color: AppColors.textMuted, fontSize: 11)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right,
+                color: color.withValues(alpha: 0.5), size: 18),
+          ],
         ),
       ),
     );

@@ -1,0 +1,76 @@
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 40px; }
+        h1 { color: #00D1FF; border-bottom: 2px solid #00D1FF; padding-bottom: 10px; }
+        h2 { color: #FF00FF; margin-top: 30px; }
+        h3 { color: #555; }
+        .highlight { background-color: #F0F9FF; border-left: 5px solid #00D1FF; padding: 15px; margin: 20px 0; }
+        .stat-box { border: 1px solid #ddd; padding: 15px; border-radius: 8px; background: #f9f9f9; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #00D1FF; color: white; }
+    </style>
+</head>
+<body>
+    <h1>Reporte Estratégico: Vidalis Sparks</h1>
+    <p><i>Preparado por el equipo multidisciplinario de Antigravity (MKT, MST, PAY, DEV)</i></p>
+
+    <h2>1. El Concepto: "Viral Sparks"</h2>
+    <p>Hemos decidido reemplazar el sistema tradicional de monedas por <b>"Sparks"</b>. No es solo dinero virtual, es la energía que alimenta la viralidad del creador. Al eliminar los anuncios, el Spark se convierte en la unidad de valor central de la plataforma.</p>
+
+    <div class="highlight">
+        <strong>Visión:</strong> Vidalis no es un juego, es una herramienta profesional con mecánicas de alta retención. El usuario no "paga", sino que "invierte" energía en su éxito.
+    </div>
+
+    <h2>2. Ingeniería de Adicción (Retención 90%)</h2>
+    <h3>A. El Generador de Rachas (Streaks)</h3>
+    <p>Para garantizar que el usuario abra la app todos los días sin necesidad de enviarle spam o anuncios:</p>
+    <ul>
+        <li><b>Bono Diario:</b> 2 Sparks gratis al entrar.</li>
+        <li><b>Multiplicador de Racha:</b> Si entra 5 días seguidos, el bono aumenta a 5 Sparks.</li>
+        <li><b>Penalización:</b> Si falla un día, el generador se apaga y vuelve a nivel 1.</li>
+    </ul>
+
+    <h3>B. Sistema de Cajas Misteriosas</h3>
+    <p>Cada 50 Sparks gastados, el usuario recibe una "Caja Viral" con recompensas aleatorias (re-skins de la app, bonos de Sparks o multiplicadores de alcance temporal).</p>
+
+    <h2>3. Monetización sin Anuncios</h2>
+    <table>
+        <tr>
+            <th>Modelo</th>
+            <th>Mecánica</th>
+            <th>Impacto en Negocio</th>
+        </tr>
+        <tr>
+            <td><b>Packs de Sparks</b></td>
+            <td>Compra directa de paquetes (ej: $4.99).</td>
+            <td>Flujo de caja inmediato (IAP).</td>
+        </tr>
+        <tr>
+            <td><b>Suscripción Pro</b></td>
+            <td>Recarga mensual de 200 Sparks + Beneficios.</td>
+            <td>Ingresos recurrentes (MRR).</td>
+        </tr>
+        <tr>
+            <td><b>Desbloqueo de Nivel</b></td>
+            <td>Gastar Sparks para subir de nivel de Creador.</td>
+            <td>Quema de moneda y retención.</td>
+        </tr>
+    </table>
+
+    <h2>4. Hoja de Ruta Técnica (Implementación)</h2>
+    <p>El desarrollo se dividirá en tres fases críticas:</p>
+    <ol>
+        <li><b>Fase 1: Wallet Core.</b> Implementación del saldo en servidor y sincronización local.</li>
+        <li><b>Fase 2: Gamification UI.</b> Creación de la barra de energía neon y los modales de racha.</li>
+        <li><b>Fase 3: Pasarela IAP.</b> Integración con Apple y Google Pay para compras de un solo toque.</li>
+    </ol>
+
+    <div class="stat-box">
+        <h4>Veredicto Final: INVESTABLE</h4>
+        <p>Este modelo permite una UX limpia, profesional y premium, mientras mantiene los Unit Economics más altos de la industria móvil al fomentar micro-gastos impulsivos basados en el progreso del usuario.</p>
+    </div>
+</body>
+</html>

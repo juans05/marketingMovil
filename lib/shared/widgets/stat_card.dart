@@ -126,10 +126,10 @@ class SocialPlatformChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: connected ? color.withOpacity(0.15) : AppColors.bgCard,
+        color: connected ? color.withValues(alpha: 0.15) : AppColors.bgCard,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: connected ? color.withOpacity(0.5) : AppColors.border,
+          color: connected ? color.withValues(alpha: 0.5) : AppColors.border,
         ),
       ),
       child: Row(

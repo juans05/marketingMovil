@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 class ChunkedUploader {
-  static const int chunkSizeBytes = 6 * 1024 * 1024; // 6MB
+  static const int chunkSizeBytes = 6 * 1024 * 1024; // 6MB — Cloudinary exige mínimo 5MB por chunk
   static const int _maxRetries = 3;
 
   final http.Client _client;
@@ -110,10 +110,22 @@ class ChunkedUploader {
     request.headers['X-Unique-Upload-Id'] = uploadId;
     request.headers['Content-Range'] = 'bytes $start-$end/$fileSize';
 
-    request.fields['api_key'] = sigData['apiKey'].toString();
+    // ── Campos firmados: deben coincidir EXACTAMENTE con lo que el backend firmó ──
+    request.fields['api_key']   = sigData['apiKey'].toString();
     request.fields['timestamp'] = sigData['timestamp'].toString();
     request.fields['signature'] = sigData['signature'].toString();
-    request.fields['folder'] = sigData['folder'].toString();
+    request.fields['folder']    = sigData['folder'].toString();
+
+    // Campos adicionales incluidos en la firma del backend
+    if (sigData['eager'] != null) {
+      request.fields['eager'] = sigData['eager'].toString();
+    }
+    if (sigData['access_mode'] != null) {
+      request.fields['access_mode'] = sigData['access_mode'].toString();
+    } else {
+      // El backend siempre incluye access_mode: 'public' en la firma
+      request.fields['access_mode'] = 'public';
+    }
 
     request.files.add(http.MultipartFile.fromBytes(
       'file',

@@ -3,24 +3,24 @@ import 'package:flutter/material.dart';
 class AppColors {
   AppColors._();
 
-  // Brand
-  static const Color primary = Color(0xFF4F46E5);
-  static const Color accent = Color(0xFFA855F7);
+  // Brand (Neon & Viral Vibes)
+  static const Color primary = Color(0xFF00F2EA); // Cyan Neon
+  static const Color accent = Color(0xFFE1306C);  // Magenta Neon
 
-  // Backgrounds
-  static const Color bgPrimary = Color(0xFF09090B);
-  static const Color bgSecondary = Color(0xFF121214);
-  static const Color bgCard = Color(0xFF18181B);
-  static const Color bgInput = Color(0xFF1C1C1F);
+  // Backgrounds (Carbon Dark)
+  static const Color bgPrimary = Color(0xFF070709);
+  static const Color bgSecondary = Color(0xFF0A0A0C);
+  static const Color bgCard = Color(0xB315151A); // Translucent for glass effect
+  static const Color bgInput = Color(0xFF15151A);
 
   // Text
   static const Color textPrimary = Color(0xFFFFFFFF);
-  static const Color textSecondary = Color(0xFF71717A);
-  static const Color textMuted = Color(0xFF52525B);
+  static const Color textSecondary = Color(0xFFA1A1AA);
+  static const Color textMuted = Color(0xFF71717A);
 
   // Border
-  static const Color border = Color(0xFF27272A);
-  static const Color borderFocus = Color(0xFF4F46E5);
+  static const Color border = Color(0x33FFFFFF); // Light transluscent border
+  static const Color borderFocus = Color(0xFF00F2EA);
 
   // Status
   static const Color success = Color(0xFF22C55E);
@@ -47,10 +47,17 @@ class AppColors {
   );
 
   // Decorations
-  static BoxDecoration glassCard({double radius = 16}) => BoxDecoration(
+  static BoxDecoration glassCard({double radius = 20}) => BoxDecoration(
         color: bgCard,
         borderRadius: BorderRadius.circular(radius),
         border: Border.all(color: border, width: 1),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black26,
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
       );
 
   static BoxDecoration primaryGlow({double radius = 16}) => BoxDecoration(
@@ -58,18 +65,24 @@ class AppColors {
         borderRadius: BorderRadius.circular(radius),
         boxShadow: [
           BoxShadow(
-            color: primary.withOpacity(0.3),
-            blurRadius: 20,
+            color: primary.withValues(alpha: 0.4),
+            blurRadius: 16,
             offset: const Offset(0, 4),
+          ),
+          BoxShadow(
+            color: accent.withValues(alpha: 0.2),
+            blurRadius: 32,
+            offset: const Offset(0, 0),
           ),
         ],
       );
 
-  // Viral score color
+  // Viral score gamified colors
   static Color viralScoreColor(double score) {
-    if (score >= 8) return const Color(0xFF22C55E);
-    if (score >= 6) return const Color(0xFF84CC16);
-    if (score >= 4) return const Color(0xFFF59E0B);
-    return const Color(0xFFEF4444);
+    if (score >= 9) return const Color(0xFF00F2EA); // Diamond / God Tier
+    if (score >= 7) return const Color(0xFFFBBF24); // Gold / Viral
+    if (score >= 5) return const Color(0xFF22C55E); // Green / Good
+    if (score >= 3) return const Color(0xFFF97316); // Orange / Warning
+    return const Color(0xFFEF4444); // Red / Bad
   }
 }

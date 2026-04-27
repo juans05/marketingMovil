@@ -7,6 +7,7 @@ import '../../core/services/app_provider.dart';
 import '../../shared/widgets/stat_card.dart';
 import '../../shared/widgets/vidalis_button.dart';
 import '../../shared/widgets/vidalis_input.dart';
+import '../analytics/video_analytics_screen.dart';
 
 class VideoDetailScreen extends StatefulWidget {
   const VideoDetailScreen({super.key, required this.video});
@@ -28,6 +29,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
   bool _saving = false;
   bool _refining = false;
   bool _publishing = false;
+  bool _retrying = false;
+  bool _deleting = false;
 
   // Publish
   final List<String> _platforms = [];
@@ -66,7 +69,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
 
       final updated = await prov.api.updateVideo(_video.id, {
         'title': _titleCtrl.text.trim(),
-        'ai_copy': _copyCtrl.text.trim(),
+        'ai_copy_short': _copyCtrl.text.trim(),
         'hashtags': hashtags,
       });
       setState(() => _video = updated);
@@ -96,6 +99,53 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
       if (mounted) _showSnack('Error al humanizar: $e', isError: true);
     } finally {
       if (mounted) setState(() => _refining = false);
+    }
+  }
+
+  Future<void> _delete() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppColors.bgCard,
+        title: const Text('Eliminar video', style: TextStyle(color: AppColors.textPrimary)),
+        content: const Text('¿Seguro que quieres eliminar este video? Esta acción no se puede deshacer.',
+            style: TextStyle(color: AppColors.textSecondary)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar', style: TextStyle(color: AppColors.textMuted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar', style: TextStyle(color: AppColors.danger)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    setState(() => _deleting = true);
+    final prov = context.read<AppProvider>();
+    try {
+      await prov.api.deleteVideo(_video.id);
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) _showSnack('Error al eliminar: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _deleting = false);
+    }
+  }
+
+  Future<void> _retry() async {
+    setState(() => _retrying = true);
+    final prov = context.read<AppProvider>();
+    try {
+      await prov.api.retryVideo(_video.id);
+      if (mounted) _showSnack('Análisis reiniciado. Espera unos minutos.');
+    } catch (e) {
+      if (mounted) _showSnack('Error al reintentar: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _retrying = false);
     }
   }
 
@@ -142,6 +192,35 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
           style: const TextStyle(color: AppColors.textPrimary, fontSize: 16),
         ),
         iconTheme: const IconThemeData(color: AppColors.textPrimary),
+        actions: [
+          if (_video.isProcessing || _video.isError)
+            _retrying
+                ? const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: SizedBox(
+                      width: 20, height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                    ),
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.refresh_rounded, color: AppColors.primary),
+                    tooltip: 'Reintentar análisis',
+                    onPressed: _retry,
+                  ),
+          _deleting
+              ? const Padding(
+                  padding: EdgeInsets.all(14),
+                  child: SizedBox(
+                    width: 20, height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.danger),
+                  ),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded, color: AppColors.danger),
+                  tooltip: 'Eliminar video',
+                  onPressed: _delete,
+                ),
+        ],
         bottom: TabBar(
           controller: _tab,
           indicatorColor: AppColors.primary,
@@ -169,6 +248,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
           ),
           _PublishTab(
             plan: prov.user?.plan ?? 'Mini',
+            activePlatforms: prov.activeArtist?.activePlatforms ?? [],
             platforms: _platforms,
             postType: _postType,
             onTogglePlatform: (p) {
@@ -211,6 +291,55 @@ class _InfoTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
+        if (video.isProcessing || video.isError) ...[
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: video.isError
+                  ? AppColors.danger.withValues(alpha: 0.08)
+                  : AppColors.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: video.isError
+                    ? AppColors.danger.withValues(alpha: 0.3)
+                    : AppColors.primary.withValues(alpha: 0.3),
+              ),
+            ),
+            child: Row(
+              children: [
+                video.isError
+                    ? const Icon(Icons.error_outline, color: AppColors.danger, size: 22)
+                    : const SizedBox(
+                        width: 20, height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                      ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        video.isError ? 'Error en el análisis IA' : 'Analizando video con IA',
+                        style: TextStyle(
+                          color: video.isError ? AppColors.danger : AppColors.textPrimary,
+                          fontWeight: FontWeight.w600, fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        video.isError
+                            ? 'El análisis falló. Toca el ícono 🔄 arriba para reintentar.'
+                            : 'Esto puede tardar unos minutos. Si pasa más de 10 min, toca 🔄 arriba.',
+                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
         if (video.viralScore != null) ...[
           Row(
             children: [
@@ -242,7 +371,30 @@ class _InfoTab extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
+          if (video.status == 'published' || video.ayrsharePostId != null) ...[
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => VideoAnalyticsScreen(video: video),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.show_chart, size: 18),
+              label: const Text('Ver Estadísticas Reales'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.accent,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                minimumSize: const Size(double.infinity, 48),
+                elevation: 0,
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
         ],
         if (video.hookSuggestion != null) ...[
           _Section(
@@ -415,6 +567,7 @@ class _EditorTab extends StatelessWidget {
 class _PublishTab extends StatelessWidget {
   const _PublishTab({
     required this.plan,
+    required this.activePlatforms,
     required this.platforms,
     required this.postType,
     required this.onTogglePlatform,
@@ -423,6 +576,7 @@ class _PublishTab extends StatelessWidget {
     required this.publishing,
   });
   final String plan;
+  final List<String> activePlatforms;
   final List<String> platforms;
   final String postType;
   final void Function(String) onTogglePlatform;
@@ -433,15 +587,25 @@ class _PublishTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final allPlatformItems = [
-      ('tiktok',    'TikTok',    Icons.music_note,       Color(0xFF00F2EA)),
       ('instagram', 'Instagram', Icons.camera_alt,        Color(0xFFE1306C)),
+      ('tiktok',    'TikTok',    Icons.music_note,       Color(0xFF00F2EA)),
+      ('facebook',  'Facebook',  Icons.facebook_outlined,    Color(0xFF1877F2)),
       ('youtube',   'YouTube',   Icons.play_circle_fill, Color(0xFFFF0000)),
+      ('linkedin',  'LinkedIn',  Icons.link,             Color(0xFF0077B5)),
     ];
 
-    final isMini = plan == 'Mini';
-    final platformItems = isMini 
-      ? allPlatformItems.where((p) => p.$1 == 'tiktok' || p.$1 == 'instagram').toList()
-      : allPlatformItems;
+    // Mapa de límites por plan (Sincronizado con Backend)
+    final planLimits = {
+      'Mini':        ['instagram', 'tiktok'],
+      'Artista':     ['instagram', 'tiktok', 'facebook'],
+      'Estrella':    ['instagram', 'tiktok', 'facebook', 'youtube', 'linkedin'],
+      'Agencia Pro': ['instagram', 'tiktok', 'facebook', 'youtube', 'linkedin'],
+    };
+
+    final allowed = planLimits[plan] ?? planLimits['Mini']!;
+    final platformItems = allPlatformItems.where((p) {
+      return allowed.contains(p.$1) && activePlatforms.contains(p.$1);
+    }).toList();
 
     const postTypes = [
       ('reel',  '🎬 Reels'),
@@ -530,6 +694,29 @@ class _PublishTab extends StatelessWidget {
             ),
           );
         }),
+        const SizedBox(height: 24),
+
+        // Info card about limits
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.bgCard,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.info_outline, color: AppColors.accent, size: 18),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Límites diarios por red (TikTok: 15, IG: 50). Evita duplicados en menos de 48h para prevenir bloqueos de spam.',
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+                ),
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: 24),
 
         VidalisButton(

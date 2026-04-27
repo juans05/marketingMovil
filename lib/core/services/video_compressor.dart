@@ -15,7 +15,7 @@ class VideoCompressor {
     try {
       final info = await VideoCompress.compressVideo(
         sourcePath,
-        quality: VideoQuality.DefaultQuality, // 720p — balance entre calidad y tamaño
+        quality: VideoQuality.MediumQuality, // Más rápido que DefaultQuality
         deleteOrigin: false,
         includeAudio: true,
       );
