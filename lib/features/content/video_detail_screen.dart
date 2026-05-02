@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/video_model.dart';
 import '../../core/services/app_provider.dart';
+import '../../core/services/crash_logger.dart';
 import '../../shared/widgets/stat_card.dart';
 import '../../shared/widgets/vidalis_button.dart';
 import '../../shared/widgets/vidalis_input.dart';
@@ -35,6 +37,10 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
   // Publish
   final List<String> _platforms = [];
   String _postType = 'reel';
+  String _tiktokPrivacy = 'SELF_ONLY'; // Default seguro para cuentas nuevas: SELF_ONLY | MUTUAL_FOLLOW_FRIENDS | PUBLIC_TO_EVERYONE
+
+  // Polling para video en proceso
+  Timer? _pollTimer;
 
   @override
   void initState() {
@@ -46,15 +52,60 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
     _hashtagCtrl = TextEditingController(
         text: _video.hashtags.map((h) => '#$h').join(' '));
     _platforms.addAll(_video.platforms);
+    _maybeStartPolling();
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _tab.dispose();
     _titleCtrl.dispose();
     _copyCtrl.dispose();
     _hashtagCtrl.dispose();
     super.dispose();
+  }
+
+  void _maybeStartPolling() {
+    if (!_video.isProcessing) return;
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _pollStatus());
+  }
+
+  Future<void> _pollStatus() async {
+    if (!mounted) return;
+    try {
+      final prov = context.read<AppProvider>();
+      final fresh = await prov.api.getVideoById(_video.id);
+      if (!mounted) return;
+      if (fresh.status != _video.status) {
+        _pollTimer?.cancel();
+        setState(() {
+          _video = fresh;
+          _titleCtrl.text = fresh.title ?? '';
+          _copyCtrl.text = fresh.aiCopy ?? '';
+          _hashtagCtrl.text = fresh.hashtags.map((h) => '#$h').join(' ');
+        });
+        if (fresh.status == 'needs_review' || fresh.status == 'ready') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✨ Video listo — copy y hashtags generados'),
+              backgroundColor: Color(0xFF00E5C7),
+              duration: Duration(seconds: 4),
+            ),
+          );
+        } else if (fresh.status == 'error') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('❌ Error procesando el video — toca 🔄 para reintentar'),
+              backgroundColor: Colors.redAccent,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+      }
+    } catch (_) {
+      // Silenciar errores de polling — reintentamos en el próximo tick
+    }
   }
 
   Future<void> _save() async {
@@ -136,13 +187,93 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
     }
   }
 
+  Future<void> _checkPublishStatus() async {
+    final prov = context.read<AppProvider>();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
+    );
+    try {
+      final res = await prov.api.getPublishStatus(_video.id);
+      if (!mounted) return;
+      Navigator.pop(context);
+
+      final remote = (res['remote_status'] as Map?) ?? {};
+      final platforms = (res['platforms_requested'] as List?)?.cast<String>() ?? [];
+      final results = (remote['results'] ?? remote['platforms'] ?? remote['platform_results'] ?? {}) as Map?;
+      final remoteError = remote['error'] ?? remote['status'];
+
+      final lines = <String>[];
+      lines.add('📋 Request ID:\n${res['request_id'] ?? 'N/A'}');
+      lines.add('');
+      lines.add('📅 Publicado: ${res['published_at'] ?? 'pendiente'}');
+      lines.add('🎯 Status DB: ${res['status'] ?? 'desconocido'}');
+      lines.add('');
+      lines.add('🌐 Plataformas solicitadas:');
+      lines.add(platforms.isEmpty ? '  (ninguna registrada)' : '  ${platforms.join(", ")}');
+      lines.add('');
+      if (results != null && results.isNotEmpty) {
+        lines.add('📊 Estado por plataforma:');
+        for (final p in platforms) {
+          final info = results[p];
+          if (info == null) {
+            lines.add('  ⚠️ $p: sin respuesta');
+          } else {
+            final ok = info is Map && (info['success'] == true || info['status'] == 'published' || info['status'] == 'success');
+            lines.add(ok ? '  ✅ $p: publicado' : '  ❌ $p: ${info is Map ? (info['error'] ?? info['status'] ?? 'falló') : info}');
+          }
+        }
+      } else if (remoteError != null) {
+        lines.add('⚠️ Upload-Post:');
+        lines.add('  $remoteError');
+        lines.add('');
+        lines.add('Posibles causas:');
+        lines.add('• El video se publicó con un sistema anterior');
+        lines.add('• El request_id no existe en Upload-Post');
+        lines.add('• Reintenta con el botón 🔄');
+      } else {
+        lines.add('Respuesta cruda del servidor:');
+        lines.add(remote.toString());
+      }
+      final errLog = res['error_log'];
+      if (errLog != null && errLog.toString().isNotEmpty && errLog.toString() != 'null') {
+        lines.add('');
+        lines.add('🐛 Error log:');
+        lines.add('  $errLog');
+      }
+
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          backgroundColor: AppColors.bgSecondary,
+          title: const Text('Estado de publicación', style: TextStyle(color: AppColors.textPrimary)),
+          content: SingleChildScrollView(
+            child: Text(lines.join('\n'), style: const TextStyle(color: AppColors.textPrimary, fontSize: 13)),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar')),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) _showSnack('Error: $e', isError: true);
+    }
+  }
+
   Future<void> _retry() async {
     setState(() => _retrying = true);
     final prov = context.read<AppProvider>();
     try {
       await prov.api.retryVideo(_video.id);
-      if (mounted) _showSnack('Análisis reiniciado. Espera unos minutos.');
-    } catch (e) {
+      if (mounted) {
+        setState(() => _video = _video.copyWith(status: 'analyzing'));
+        _maybeStartPolling();
+        _showSnack('Análisis reiniciado. Espera unos minutos.');
+      }
+    } catch (e, stack) {
+      await CrashLogger.log('VideoDetail.retry[${_video.id}]', e, stack);
       if (mounted) _showSnack('Error al reintentar: $e', isError: true);
     } finally {
       if (mounted) setState(() => _retrying = false);
@@ -157,7 +288,35 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
     setState(() => _publishing = true);
     final prov = context.read<AppProvider>();
     try {
-      await prov.api.publishNow(_video.id, _platforms, postType: _postType);
+      // 1) Verificar conexiones reales con Upload-Post (refresh)
+      final status = await prov.api.getSocialStatus(_video.artistId, refresh: true);
+      final missing = _platforms.where((p) => status[p] != true).toList();
+      if (missing.isNotEmpty) {
+        if (!mounted) return;
+        setState(() => _publishing = false);
+        final shouldContinue = await _showMissingConnectionsDialog(missing);
+        if (!shouldContinue) return;
+        // Re-filtrar plataformas a solo las conectadas
+        setState(() {
+          _platforms.removeWhere((p) => missing.contains(p));
+          _publishing = true;
+        });
+        if (_platforms.isEmpty) {
+          if (mounted) {
+            setState(() => _publishing = false);
+            _showSnack('No queda ninguna plataforma conectada para publicar', isError: true);
+          }
+          return;
+        }
+      }
+
+      // 2) Publicar con privacy de TikTok seleccionado
+      await prov.api.publishNow(
+        _video.id,
+        _platforms,
+        postType: _postType,
+        tiktokPrivacy: _platforms.contains('tiktok') ? _tiktokPrivacy : null,
+      );
       if (mounted) {
         HapticFeedback.mediumImpact();
         _showSnack('¡Publicación en camino! Puede demorar hasta 10 minutos.');
@@ -168,6 +327,59 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
     } finally {
       if (mounted) setState(() => _publishing = false);
     }
+  }
+
+  Future<bool> _showMissingConnectionsDialog(List<String> missing) async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppColors.bgSecondary,
+        title: const Text('Plataformas no conectadas',
+            style: TextStyle(color: AppColors.textPrimary)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Estas plataformas no están conectadas para este artista:\n',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+            ...missing.map((p) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.cancel_outlined,
+                          color: AppColors.danger, size: 18),
+                      const SizedBox(width: 8),
+                      Text(p.toUpperCase(),
+                          style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                )),
+            const SizedBox(height: 12),
+            const Text(
+              'Conéctalas desde Configuración → Redes Sociales antes de publicar, o continúa solo con las conectadas.',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Continuar sin ellas',
+                style: TextStyle(color: AppColors.primary)),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
   }
 
   void _showSnack(String msg, {bool isError = false}) {
@@ -193,6 +405,12 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
         ),
         iconTheme: const IconThemeData(color: AppColors.textPrimary),
         actions: [
+          if (_video.status == 'published')
+            IconButton(
+              icon: const Icon(Icons.fact_check_outlined, color: AppColors.primary),
+              tooltip: 'Verificar publicación',
+              onPressed: _checkPublishStatus,
+            ),
           if (_video.isProcessing || _video.isError)
             _retrying
                 ? const Padding(
@@ -251,6 +469,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
             activePlatforms: prov.activeArtist?.activePlatforms ?? [],
             platforms: _platforms,
             postType: _postType,
+            tiktokPrivacy: _tiktokPrivacy,
             onTogglePlatform: (p) {
               setState(() {
                 if (_platforms.contains(p)) {
@@ -261,6 +480,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
               });
             },
             onChangePostType: (t) => setState(() => _postType = t),
+            onChangeTiktokPrivacy: (v) => setState(() => _tiktokPrivacy = v),
             onPublishNow: _publishing ? null : _publishNow,
             publishing: _publishing,
           ),
@@ -372,7 +592,7 @@ class _InfoTab extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          if (video.status == 'published' || video.ayrsharePostId != null) ...[
+          if (video.status == 'published' || video.postId != null) ...[
             ElevatedButton.icon(
               onPressed: () {
                 Navigator.push(
@@ -570,8 +790,10 @@ class _PublishTab extends StatelessWidget {
     required this.activePlatforms,
     required this.platforms,
     required this.postType,
+    required this.tiktokPrivacy,
     required this.onTogglePlatform,
     required this.onChangePostType,
+    required this.onChangeTiktokPrivacy,
     required this.onPublishNow,
     required this.publishing,
   });
@@ -579,8 +801,10 @@ class _PublishTab extends StatelessWidget {
   final List<String> activePlatforms;
   final List<String> platforms;
   final String postType;
+  final String tiktokPrivacy;
   final void Function(String) onTogglePlatform;
   final void Function(String) onChangePostType;
+  final void Function(String) onChangeTiktokPrivacy;
   final VoidCallback? onPublishNow;
   final bool publishing;
 
@@ -695,6 +919,70 @@ class _PublishTab extends StatelessWidget {
           );
         }),
         const SizedBox(height: 24),
+
+        // Privacidad TikTok (solo si está seleccionado)
+        if (platforms.contains('tiktok')) ...[
+          const Text(
+            'Privacidad en TikTok',
+            style: TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Cuentas nuevas o no auditadas deben usar "Solo yo". Cambia a Público cuando tu cuenta esté verificada.',
+            style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+          ),
+          const SizedBox(height: 10),
+          Column(
+            children: [
+              ('SELF_ONLY', 'Solo yo (privado)', '🔒 Recomendado para cuentas nuevas. Llega a borradores en TikTok'),
+              ('MUTUAL_FOLLOW_FRIENDS', 'Amigos', '👥 Solo seguidores mutuos'),
+              ('PUBLIC_TO_EVERYONE', 'Público', '🌍 Visible para todos. Requiere cuenta auditada'),
+            ].map((item) {
+              final (id, label, hint) = item;
+              final selected = tiktokPrivacy == id;
+              return GestureDetector(
+                onTap: () => onChangeTiktokPrivacy(id),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: selected ? AppColors.primary.withValues(alpha: 0.1) : AppColors.bgCard,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: selected ? AppColors.primary.withValues(alpha: 0.5) : AppColors.border,
+                      width: selected ? 1.5 : 1,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        selected ? Icons.radio_button_checked : Icons.radio_button_off,
+                        color: selected ? AppColors.primary : AppColors.textMuted,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(label,
+                                style: TextStyle(
+                                    color: selected ? AppColors.textPrimary : AppColors.textSecondary,
+                                    fontSize: 13,
+                                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400)),
+                            const SizedBox(height: 2),
+                            Text(hint, style: const TextStyle(color: AppColors.textMuted, fontSize: 10)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 24),
+        ],
 
         // Info card about limits
         Container(

@@ -22,6 +22,8 @@ class ApiConstants {
   static const String upload = '/api/vidalis/upload';
   static String gallery(String artistId) => '/api/vidalis/gallery/$artistId';
   static String video(String videoId) => '/api/vidalis/video/$videoId';
+  static String publishStatus(String videoId) =>
+      '/api/vidalis/video/$videoId/publish-status';
   static String publishNow(String videoId) =>
       '/api/vidalis/publish-now/$videoId';
   static String schedule(String videoId) =>
@@ -43,4 +45,13 @@ class ApiConstants {
 
   // Config pública
   static String config(String key) => '/api/vidalis/config/$key';
+
+  // Growth Pro
+  static String growthInsights(String artistId) => '/api/vidalis/artists/$artistId/growth/insights';
+  static String growthBestTime(String artistId) => '/api/vidalis/artists/$artistId/growth/best-time';
+  static String growthStrategy(String artistId) => '/api/vidalis/artists/$artistId/growth/strategy';
+  static String growthViralHistory(String artistId) => '/api/vidalis/artists/$artistId/growth/viral-history';
+  static String abVariants(String videoId) => '/api/vidalis/videos/$videoId/ab-variants';
+  static String abResult(String videoId) => '/api/vidalis/videos/$videoId/ab-result';
+  static String adCopy(String videoId) => '/api/vidalis/videos/$videoId/ad-copy';
 }

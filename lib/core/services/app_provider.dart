@@ -292,11 +292,11 @@ class AppProvider extends ChangeNotifier {
     _setLoading();
     try {
       await _api.runDeepAudit(_activeArtist!.id, allowFullAudit);
-      await loadStats(); // Recargar para ver el nuevo ADN o el log de insights
-      _setIdle();
+      await loadStats();
     } catch (e) {
-      _setError('Error en auditoría: $e');
       rethrow;
+    } finally {
+      _setIdle();
     }
   }
 

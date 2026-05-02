@@ -53,6 +53,9 @@ dependencies:
   # URL / deep links
   url_launcher: ^6.3.1
 
+  # File paths (crash logger)
+  path_provider: ^2.1.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

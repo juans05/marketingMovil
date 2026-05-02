@@ -251,7 +251,6 @@ class _SocialConnectScreenState extends State<SocialConnectScreen> {
   List<Widget> _platformItems() {
     final prov = context.read<AppProvider>();
     final plan = prov.user?.plan ?? 'Mini';
-    final isMini = plan == 'Mini';
 
     final allPlatforms = [
       ('instagram', 'Instagram', Icons.camera_alt_outlined, Color(0xFFE1306C)),

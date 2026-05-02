@@ -3,6 +3,8 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:provider/provider.dart';
 import 'style_settings_screen.dart';
 import '../social/social_connect_screen.dart';
+import '../growth/growth_screen.dart';
+import '../growth/growth_locked_view.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/video_model.dart';
 import '../../core/services/app_provider.dart';
@@ -15,7 +17,8 @@ class AnalyticsScreen extends StatefulWidget {
   State<AnalyticsScreen> createState() => _AnalyticsScreenState();
 }
 
-class _AnalyticsScreenState extends State<AnalyticsScreen> {
+class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
   StatsModel? _stats;
   bool _loading = true;
   bool _auditing = false;
@@ -24,7 +27,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _load();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -101,38 +111,85 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
+  bool get _hasGrowthPlan {
+    final plan = _stats?.planName ?? '';
+    return plan == 'Estrella' || plan == 'Agencia Pro' || plan.toLowerCase().contains('growth');
+  }
+
   @override
   Widget build(BuildContext context) {
-    return RefreshIndicator(
-      onRefresh: _load,
-      color: AppColors.primary,
-      backgroundColor: AppColors.bgCard,
-      child: _loading
-          ? const Center(
-              child: CircularProgressIndicator(color: AppColors.primary))
-          : _error != null
-              ? _ErrorView(error: _error!, onRetry: _load)
-              : _stats == null
-                  ? _EmptyView(onRetry: _load)
-                  : Stack(
-                      children: [
-                        _Content(stats: _stats!, onAudit: _runAudit),
-                        if (_auditing)
-                          Container(
-                            color: Colors.black54,
-                            child: const Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
+    return Column(
+      children: [
+        // Tab bar
+        Container(
+          color: AppColors.bgPrimary,
+          child: TabBar(
+            controller: _tabController,
+            indicatorColor: AppColors.primary,
+            indicatorWeight: 2,
+            labelColor: AppColors.primary,
+            unselectedLabelColor: AppColors.textMuted,
+            labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+            tabs: const [
+              Tab(text: 'STATS'),
+              Tab(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('GROWTH'),
+                    SizedBox(width: 4),
+                    Text('✦', style: TextStyle(fontSize: 10, color: AppColors.accent)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Tab content
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              // STATS tab — existing content
+              RefreshIndicator(
+                onRefresh: _load,
+                color: AppColors.primary,
+                backgroundColor: AppColors.bgCard,
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+                    : _error != null
+                        ? _ErrorView(error: _error!, onRetry: _load)
+                        : _stats == null
+                            ? _EmptyView(onRetry: _load)
+                            : Stack(
                                 children: [
-                                  CircularProgressIndicator(color: AppColors.primary),
-                                  SizedBox(height: 16),
-                                  Text('Analizando historial...', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                  _Content(stats: _stats!, onAudit: _runAudit),
+                                  if (_auditing)
+                                    Container(
+                                      color: Colors.black54,
+                                      child: const Center(
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            CircularProgressIndicator(color: AppColors.primary),
+                                            SizedBox(height: 16),
+                                            Text('Analizando historial...', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                 ],
                               ),
-                            ),
-                          ),
-                      ],
-                    ),
+              ),
+              // GROWTH tab
+              _hasGrowthPlan
+                  ? const GrowthScreen()
+                  : const GrowthLockedView(),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

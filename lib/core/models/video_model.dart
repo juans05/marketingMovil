@@ -11,7 +11,7 @@ class VideoModel {
   final List<String> hashtags;
   final List<String> platforms;
   final DateTime? scheduledAt;
-  final String? ayrsharePostId;
+  final String? postId; // ID del post en la red social (mapea de ayrshare_post_id en DB)
   final String? processedUrl;
   final DateTime createdAt;
 
@@ -28,7 +28,7 @@ class VideoModel {
     this.hashtags = const [],
     this.platforms = const [],
     this.scheduledAt,
-    this.ayrsharePostId,
+    this.postId,
     this.processedUrl,
     required this.createdAt,
   });
@@ -70,7 +70,7 @@ class VideoModel {
       scheduledAt: json['scheduled_at'] != null
           ? DateTime.tryParse(json['scheduled_at'].toString())
           : null,
-      ayrsharePostId: json['ayrshare_post_id']?.toString(),
+      postId: json['ayrshare_post_id']?.toString(),
       createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '') ??
           DateTime.now(),
     );

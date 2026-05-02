@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -6,6 +7,8 @@ import '../constants/api_constants.dart';
 import '../models/user_model.dart';
 import '../models/artist_model.dart';
 import '../models/video_model.dart';
+import '../models/growth_model.dart';
+import 'crash_logger.dart';
 import 'storage_service.dart';
 
 class ApiException implements Exception {
@@ -56,10 +59,11 @@ class ApiService {
     return _handle(res);
   }
 
-  Future<dynamic> _post(String path, Map<String, dynamic> body) async {
+  Future<dynamic> _post(String path, Map<String, dynamic> body,
+      {Duration timeout = const Duration(seconds: 30)}) async {
     final res = await http
         .post(_uri(path), headers: _headers, body: jsonEncode(body))
-        .timeout(const Duration(seconds: 30));
+        .timeout(timeout);
     return _handle(res);
   }
 
@@ -87,6 +91,9 @@ class ApiService {
       final body = jsonDecode(res.body);
       message = body['error'] ?? body['message'] ?? message;
     } catch (_) {}
+    if (res.statusCode >= 500) {
+      CrashLogger.log('API[${res.request?.url.path}]', 'HTTP ${res.statusCode}: $message');
+    }
     throw ApiException(message, statusCode: res.statusCode);
   }
 
@@ -121,7 +128,7 @@ class ApiService {
       'email': email,
       'password': password,
       'birth_date': birthDate,
-      'account_type': 'individual',
+      'account_type': 'artist',
     });
     return UserModel.fromJson(data as Map<String, dynamic>);
   }
@@ -165,13 +172,33 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> runDeepAudit(String artistId, bool allowFullAudit) async {
-    final data = await _post('/api/vidalis/artists/$artistId/audit', {
-      'allow_full_audit': allowFullAudit
-    });
-    return data as Map<String, dynamic>;
+    try {
+      final data = await _post(
+        '/api/vidalis/artists/$artistId/audit',
+        {'allow_full_audit': allowFullAudit},
+        timeout: const Duration(seconds: 120),
+      );
+      return data as Map<String, dynamic>;
+    } on TimeoutException catch (e, stack) {
+      await CrashLogger.log('runDeepAudit[$artistId]', 'Timeout (120s): $e', stack);
+      rethrow;
+    } catch (e, stack) {
+      await CrashLogger.log('runDeepAudit[$artistId]', e, stack);
+      rethrow;
+    }
   }
 
   // ─── Content ─────────────────────────────────────────────────────────────
+  Future<VideoModel> getVideoById(String videoId) async {
+    final data = await _get(ApiConstants.video(videoId));
+    return VideoModel.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<Map<String, dynamic>> getPublishStatus(String videoId) async {
+    final data = await _get(ApiConstants.publishStatus(videoId));
+    return data as Map<String, dynamic>;
+  }
+
   Future<List<VideoModel>> getGallery(String artistId, {int? limit, int? page}) async {
     String path = ApiConstants.gallery(artistId);
     final params = <String>[];
@@ -286,15 +313,29 @@ class ApiService {
   }
 
   Future<void> retryVideo(String videoId) async {
-    await _post('/api/vidalis/video/$videoId/retry', {});
+    try {
+      await _post('/api/vidalis/video/$videoId/retry', {});
+    } on TimeoutException catch (e, stack) {
+      await CrashLogger.log('retryVideo[$videoId]', 'Timeout (30s): $e', stack);
+      rethrow;
+    } catch (e, stack) {
+      await CrashLogger.log('retryVideo[$videoId]', e, stack);
+      rethrow;
+    }
   }
 
   Future<void> deleteVideo(String videoId) async {
     await _delete('/api/vidalis/video/$videoId');
   }
 
-  Future<void> publishNow(String videoId, List<String> platforms, {String postType = 'reel'}) async {
-    await _post(ApiConstants.publishNow(videoId), {'platforms': platforms, 'postType': postType});
+  Future<void> publishNow(String videoId, List<String> platforms,
+      {String postType = 'reel', String? tiktokPrivacy}) async {
+    final body = <String, dynamic>{
+      'platforms': platforms,
+      'postType': postType,
+    };
+    if (tiktokPrivacy != null) body['tiktokPrivacy'] = tiktokPrivacy;
+    await _post(ApiConstants.publishNow(videoId), body);
   }
 
   // ─── Stats ───────────────────────────────────────────────────
@@ -350,6 +391,46 @@ class ApiService {
       'platforms': platforms,
       'format': format,
     });
+  }
+
+  // ─── Growth Pro ──────────────────────────────────────────────────────────────
+  Future<List<GrowthInsight>> getGrowthInsights(String artistId) async {
+    final data = await _get(ApiConstants.growthInsights(artistId));
+    final list = data as List? ?? [];
+    return list.map((e) => GrowthInsight.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<BestTimeData> getGrowthBestTime(String artistId) async {
+    final data = await _get(ApiConstants.growthBestTime(artistId));
+    return BestTimeData.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<List<ContentStrategyItem>> getGrowthStrategy(String artistId) async {
+    final data = await _get(ApiConstants.growthStrategy(artistId));
+    final list = data as List? ?? [];
+    return list.map((e) => ContentStrategyItem.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<List<ViralScorePoint>> getViralHistory(String artistId) async {
+    final data = await _get(ApiConstants.growthViralHistory(artistId));
+    final list = data as List? ?? [];
+    return list.map((e) => ViralScorePoint.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<ABTestData> generateABVariants(String videoId) async {
+    final data = await _post(ApiConstants.abVariants(videoId), {});
+    return ABTestData.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<ABTestData> getABResult(String videoId) async {
+    final data = await _get(ApiConstants.abResult(videoId));
+    return ABTestData.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<List<AdCopyData>> generateAdCopy(String videoId) async {
+    final data = await _post(ApiConstants.adCopy(videoId), {});
+    final list = data as List? ?? [];
+    return list.map((e) => AdCopyData.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   Future<int> purchaseSparks(String userId, int amount) async {
