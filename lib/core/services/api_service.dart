@@ -128,7 +128,7 @@ class ApiService {
       'email': email,
       'password': password,
       'birth_date': birthDate,
-      'account_type': 'artist',
+      'account_type': 'individual',
     });
     return UserModel.fromJson(data as Map<String, dynamic>);
   }
