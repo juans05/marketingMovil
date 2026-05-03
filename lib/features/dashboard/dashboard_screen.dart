@@ -196,7 +196,12 @@ class _VidalisAppBar extends StatelessWidget implements PreferredSizeWidget {
     return AppBar(
       backgroundColor: AppColors.bgSecondary,
       elevation: 0,
-      title: Row(
+      titleSpacing: 8,
+      title: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           ShaderMask(
             shaderCallback: (b) => AppColors.primaryGradient.createShader(b),
@@ -250,6 +255,7 @@ class _VidalisAppBar extends StatelessWidget implements PreferredSizeWidget {
             ),
           ),
         ],
+        ),
       ),
       actions: [
         // Artist selector (agencies only)
