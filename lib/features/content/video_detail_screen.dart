@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -285,45 +286,59 @@ class _VideoDetailScreenState extends State<VideoDetailScreen>
       _showSnack('Selecciona al menos una plataforma', isError: true);
       return;
     }
+    if (_video.artistId.isEmpty) {
+      _showSnack('Este video no tiene artista asignado', isError: true);
+      return;
+    }
     setState(() => _publishing = true);
     final prov = context.read<AppProvider>();
     try {
-      // 1) Verificar conexiones reales con Upload-Post (refresh)
-      final status = await prov.api.getSocialStatus(_video.artistId, refresh: true);
-      final missing = _platforms.where((p) => status[p] != true).toList();
+      // 1) Verificar conexiones reales (refresh)
+      Map<String, bool> status = {};
+      try {
+        status = await prov.api.getSocialStatus(_video.artistId, refresh: true);
+      } catch (e) {
+        debugPrint('⚠️ getSocialStatus falló: $e — continuamos sin verificación');
+      }
+
+      // Solo marcamos como missing las plataformas que el backend EXPLÍCITAMENTE reportó como false.
+      // Si el backend no devolvió la plataforma, asumimos que sí está (mejor permitir que bloquear).
+      final missing = _platforms.where((p) => status.containsKey(p) && status[p] == false).toList();
+
       if (missing.isNotEmpty) {
         if (!mounted) return;
         setState(() => _publishing = false);
         final shouldContinue = await _showMissingConnectionsDialog(missing);
+        if (!mounted) return;
         if (!shouldContinue) return;
-        // Re-filtrar plataformas a solo las conectadas
-        setState(() {
-          _platforms.removeWhere((p) => missing.contains(p));
-          _publishing = true;
-        });
-        if (_platforms.isEmpty) {
-          if (mounted) {
-            setState(() => _publishing = false);
-            _showSnack('No queda ninguna plataforma conectada para publicar', isError: true);
-          }
+
+        final remaining = List<String>.from(_platforms)..removeWhere((p) => missing.contains(p));
+        if (remaining.isEmpty) {
+          _showSnack('No queda ninguna plataforma conectada para publicar', isError: true);
           return;
         }
+        setState(() {
+          _platforms
+            ..clear()
+            ..addAll(remaining);
+          _publishing = true;
+        });
       }
 
-      // 2) Publicar con privacy de TikTok seleccionado
+      // 2) Publicar
       await prov.api.publishNow(
         _video.id,
         _platforms,
         postType: _postType,
         tiktokPrivacy: _platforms.contains('tiktok') ? _tiktokPrivacy : null,
       );
-      if (mounted) {
-        HapticFeedback.mediumImpact();
-        _showSnack('¡Publicación en camino! Puede demorar hasta 10 minutos.');
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      if (mounted) _showSnack('Error: $e', isError: true);
+      if (!mounted) return;
+      HapticFeedback.mediumImpact();
+      _showSnack('¡Publicación en camino! Puede demorar hasta 10 minutos.');
+      Navigator.pop(context);
+    } catch (e, stack) {
+      await CrashLogger.log('VideoDetail.publishNow[${_video.id}]', e, stack);
+      if (mounted) _showSnack('Error al publicar: $e', isError: true);
     } finally {
       if (mounted) setState(() => _publishing = false);
     }
@@ -505,8 +520,12 @@ class _InfoTab extends StatelessWidget {
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: video.thumbnailUrl != null
-                ? Image.network(video.thumbnailUrl!, fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => const _ThumbnailFallback())
+                ? CachedNetworkImage(
+                    imageUrl: video.thumbnailUrl!,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) => const _ThumbnailFallback(),
+                    errorWidget: (_, __, ___) => const _ThumbnailFallback(),
+                  )
                 : const _ThumbnailFallback(),
           ),
         ),
