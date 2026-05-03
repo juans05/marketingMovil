@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:video_compress/video_compress.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/upload_job.dart';
 import '../../core/services/upload_queue.dart';
@@ -14,116 +16,149 @@ class UploadBannerOverlay extends StatelessWidget {
         final job = queue.activeJob;
         if (job == null) return const SizedBox.shrink();
         return Positioned(
-          left: 0,
-          right: 0,
-          bottom: 110, // Elevado para no tapar el menú (65 altura + 24 margen aprox)
-          child: _UploadBanner(job: job),
+          top: MediaQuery.of(context).padding.top + 70, // debajo del AppBar
+          left: 12,
+          child: _UploadChip(job: job),
         );
       },
     );
   }
 }
 
-class _UploadBanner extends StatelessWidget {
-  const _UploadBanner({required this.job});
+class _UploadChip extends StatefulWidget {
+  const _UploadChip({required this.job});
   final UploadJob job;
 
   @override
+  State<_UploadChip> createState() => _UploadChipState();
+}
+
+class _UploadChipState extends State<_UploadChip> {
+  String? _thumbnailPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadThumbnail();
+  }
+
+  Future<void> _loadThumbnail() async {
+    final path = widget.job.filePath;
+    if (path == null) return;
+    try {
+      final file = await VideoCompress.getFileThumbnail(path, quality: 30);
+      if (mounted) setState(() => _thumbnailPath = file.path);
+    } catch (_) {
+      // Si falla, dejamos el placeholder
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final job = widget.job;
     final isDone = job.status == UploadStatus.done;
     final isFailed = job.status == UploadStatus.failed;
+    final percent = (job.progress * 100).clamp(0, 100).toInt();
 
     return Material(
       color: Colors.transparent,
       child: Container(
-        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        width: 76,
+        height: 100,
         decoration: BoxDecoration(
-          color: isFailed
-              ? AppColors.danger.withValues(alpha: 0.95)
-              : isDone
-                  ? const Color(0xFF10B981).withValues(alpha: 0.95)
-                  : AppColors.bgCard.withValues(alpha: 0.97),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isFailed
-                ? AppColors.danger
-                : isDone
-                    ? const Color(0xFF10B981)
-                    : AppColors.primary.withValues(alpha: 0.4),
-          ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.3),
+              color: Colors.black.withValues(alpha: 0.4),
               blurRadius: 12,
               offset: const Offset(0, 4),
             ),
           ],
         ),
-        child: Row(
+        child: Stack(
+          alignment: Alignment.center,
           children: [
-            _icon(isDone, isFailed),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    job.title ?? 'Video',
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+            // Thumbnail o placeholder
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: _thumbnailPath != null
+                  ? Image.file(
+                      File(_thumbnailPath!),
+                      fit: BoxFit.cover,
+                      width: 76,
+                      height: 100,
+                    )
+                  : Container(
+                      color: AppColors.bgCard,
+                      child: const Center(
+                        child: Icon(Icons.videocam_outlined,
+                            color: AppColors.textMuted, size: 28),
+                      ),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    isFailed
-                        ? (job.errorMessage ?? 'Error al subir')
-                        : job.statusLabel,
-                    style: TextStyle(
-                      color: isFailed ? Colors.white : AppColors.textSecondary,
-                      fontSize: 11,
-                    ),
-                  ),
-                  if (job.isActive && !isDone) ...[
-                    const SizedBox(height: 6),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
+            ),
+            // Overlay oscuro para legibilidad
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                color: Colors.black.withValues(alpha: isDone ? 0.3 : 0.55),
+              ),
+            ),
+            // Estado: progreso, check, o error
+            if (isFailed)
+              const Icon(Icons.error_outline, color: Colors.white, size: 32)
+            else if (isDone)
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF10B981),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.check, color: Colors.white, size: 20),
+              )
+            else
+              SizedBox(
+                width: 50,
+                height: 50,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    SizedBox(
+                      width: 50,
+                      height: 50,
+                      child: CircularProgressIndicator(
                         value: job.progress > 0 ? job.progress : null,
-                        backgroundColor: AppColors.border,
-                        valueColor:
-                            const AlwaysStoppedAnimation(AppColors.primary),
-                        minHeight: 3,
+                        strokeWidth: 3,
+                        backgroundColor: Colors.white.withValues(alpha: 0.25),
+                        valueColor: const AlwaysStoppedAnimation(Colors.white),
+                      ),
+                    ),
+                    Text(
+                      job.progress > 0 ? '$percent%' : '...',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
-                ],
+                ),
+              ),
+            // Borde con color de estado
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isFailed
+                      ? AppColors.danger
+                      : isDone
+                          ? const Color(0xFF10B981)
+                          : AppColors.primary.withValues(alpha: 0.7),
+                  width: 1.5,
+                ),
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _icon(bool isDone, bool isFailed) {
-    if (isFailed) {
-      return const Icon(Icons.error_outline, color: Colors.white, size: 20);
-    }
-    if (isDone) {
-      return const Icon(Icons.check_circle_outline, color: Colors.white, size: 20);
-    }
-    return const SizedBox(
-      width: 20,
-      height: 20,
-      child: CircularProgressIndicator(
-        strokeWidth: 2,
-        valueColor: AlwaysStoppedAnimation(AppColors.primary),
       ),
     );
   }
