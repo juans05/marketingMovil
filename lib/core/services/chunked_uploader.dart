@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 class ChunkedUploader {
-  static const int chunkSizeBytes = 6 * 1024 * 1024; // 6MB — Cloudinary exige mínimo 5MB por chunk
+  static const int chunkSizeBytes = 10 * 1024 * 1024; // 10MB — Cloudinary exige mínimo 5MB. Mayor = menos requests = más rápido
   static const int _maxRetries = 3;
 
   final http.Client _client;

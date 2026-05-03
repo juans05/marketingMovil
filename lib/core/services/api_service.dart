@@ -21,10 +21,13 @@ class ApiException implements Exception {
 }
 
 class ApiService {
-  ApiService(this._storage) : _baseUrl = _storage.apiUrl;
+  ApiService(this._storage) : _baseUrl = _storage.apiUrl {
+    _cachedToken = _storage.getUser()?.token;
+  }
 
   final StorageService _storage;
   String _baseUrl;
+  String? _cachedToken;
 
   String get baseUrl => _baseUrl;
 
@@ -33,16 +36,18 @@ class ApiService {
     _storage.saveApiUrl(_baseUrl);
   }
 
+  void refreshToken() {
+    _cachedToken = _storage.getUser()?.token;
+  }
+
   Map<String, String> get _headers {
     final headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     };
-    
-    // Forzamos la lectura desde el storage para evitar problemas de memoria
-    final user = _storage.getUser();
-    final token = user?.token;
-    
+
+    final token = _cachedToken;
+
     if (token != null && token.isNotEmpty) {
       headers['Authorization'] = 'Bearer $token';
     } else {

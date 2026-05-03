@@ -295,79 +295,85 @@ class _Content extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         // KPI grid
-        GridView.count(
-          crossAxisCount: 2,
+        GridView.builder(
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: 1.4,
+          ),
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: 1.4,
-          children: [
-            StatCard(
-              label: 'Seguidores',
-              value: _fmt(stats.totalFollowers),
-              change: _fmtChange(stats.followersGrowth),
-              icon: Icons.people_outline,
-            ),
-            StatCard(
-              label: 'Reproducciones',
-              value: _fmt(stats.totalViews),
-              change: _fmtChange(stats.viewsGrowth),
-              icon: Icons.play_circle_outline,
-              iconColor: AppColors.accent,
-            ),
-            StatCard(
-              label: 'Videos',
-              value: stats.publishedVideos.toString(),
-              icon: Icons.video_library_outlined,
-              iconColor: AppColors.success,
-            ),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: AppColors.glassCard(),
-              child: Stack(
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Viral Score',
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w500),
-                      ),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          Text(
-                            stats.avgViralScore.toStringAsFixed(1),
-                            style: TextStyle(
-                              color: AppColors.viralScoreColor(stats.avgViralScore),
-                              fontSize: 28,
-                              fontWeight: FontWeight.w900,
-                              shadows: [
-                                BoxShadow(color: AppColors.viralScoreColor(stats.avgViralScore).withValues(alpha: 0.5), blurRadius: 12)
-                              ],
-                            ),
-                          ),
-                          const Text('/10', style: TextStyle(color: AppColors.textMuted, fontSize: 14)),
-                        ],
-                      ),
-                    ],
-                  ),
-                  Positioned(
-                    top: 0,
-                    right: 0,
-                    child: Icon(
-                      stats.avgViralScore >= 8 ? Icons.diamond : Icons.local_fire_department,
-                      color: AppColors.viralScoreColor(stats.avgViralScore),
-                      size: 28,
-                    ),
-                  )
-                ],
+          itemCount: 4,
+          itemBuilder: (context, index) {
+            final kpis = [
+              StatCard(
+                label: 'Seguidores',
+                value: _fmt(stats.totalFollowers),
+                change: _fmtChange(stats.followersGrowth),
+                icon: Icons.people_outline,
               ),
-            ),
-          ],
+              StatCard(
+                label: 'Reproducciones',
+                value: _fmt(stats.totalViews),
+                change: _fmtChange(stats.viewsGrowth),
+                icon: Icons.play_circle_outline,
+                iconColor: AppColors.accent,
+              ),
+              StatCard(
+                label: 'Videos',
+                value: stats.publishedVideos.toString(),
+                icon: Icons.video_library_outlined,
+                iconColor: AppColors.success,
+              ),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: AppColors.glassCard(),
+                child: Stack(
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Viral Score',
+                          style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w500),
+                        ),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.baseline,
+                          textBaseline: TextBaseline.alphabetic,
+                          children: [
+                            Text(
+                              stats.avgViralScore.toStringAsFixed(1),
+                              style: TextStyle(
+                                color: AppColors.viralScoreColor(stats.avgViralScore),
+                                fontSize: 28,
+                                fontWeight: FontWeight.w900,
+                                shadows: [
+                                  BoxShadow(color: AppColors.viralScoreColor(stats.avgViralScore).withValues(alpha: 0.5), blurRadius: 12)
+                                ],
+                              ),
+                            ),
+                            const Text('/10', style: TextStyle(color: AppColors.textMuted, fontSize: 14)),
+                          ],
+                        ),
+                      ],
+                    ),
+                    Positioned(
+                      top: 0,
+                      right: 0,
+                      child: Icon(
+                        stats.avgViralScore >= 8 ? Icons.diamond : Icons.local_fire_department,
+                        color: AppColors.viralScoreColor(stats.avgViralScore),
+                        size: 28,
+                      ),
+                    )
+                  ],
+                ),
+              ),
+            ];
+            return kpis[index];
+          },
         ),
         const SizedBox(height: 24),
         // Growth chart
@@ -455,6 +461,8 @@ class _Content extends StatelessWidget {
 }
 
 class _ConnectSocialsCard extends StatelessWidget {
+  const _ConnectSocialsCard();
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -492,6 +500,8 @@ class _ConnectSocialsCard extends StatelessWidget {
 }
 
 class _GatheringDataCard extends StatelessWidget {
+  const _GatheringDataCard();
+
   @override
   Widget build(BuildContext context) {
     return Container(

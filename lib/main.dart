@@ -51,4 +51,9 @@ void main() async {
       child: VidalisApp(navigatorKey: _navigatorKey),
     ),
   );
+
+  // Verificar uploads pendientes despues de que la app este lista
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    appProvider.checkPendingUpload(_navigatorKey.currentContext);
+  });
 }

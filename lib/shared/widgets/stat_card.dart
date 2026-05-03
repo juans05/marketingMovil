@@ -85,11 +85,13 @@ class ViralScoreBadge extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          CircularProgressIndicator(
-            value: score / 10,
-            strokeWidth: 3,
-            backgroundColor: AppColors.border,
-            valueColor: AlwaysStoppedAnimation<Color>(color),
+          RepaintBoundary(
+            child: CircularProgressIndicator(
+              value: score / 10,
+              strokeWidth: 3,
+              backgroundColor: AppColors.border,
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+            ),
           ),
           Column(
             mainAxisSize: MainAxisSize.min,

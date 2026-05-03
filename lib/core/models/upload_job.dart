@@ -1,5 +1,11 @@
 enum UploadStatus { preparing, compressing, uploading, registering, done, failed }
 
+class UploadLogEntry {
+  final DateTime timestamp;
+  final String message;
+  const UploadLogEntry(this.timestamp, this.message);
+}
+
 class UploadJob {
   final String id;
   final String artistId;
@@ -11,8 +17,10 @@ class UploadJob {
   final int totalChunks;
   final String? cloudinaryUrl;
   final String? errorMessage;
+  final List<UploadLogEntry> logs;
+  final DateTime startedAt;
 
-  const UploadJob({
+  UploadJob({
     required this.id,
     required this.artistId,
     this.title,
@@ -23,7 +31,10 @@ class UploadJob {
     this.totalChunks = 0,
     this.cloudinaryUrl,
     this.errorMessage,
-  });
+    List<UploadLogEntry>? logs,
+    DateTime? startedAt,
+  })  : logs = logs ?? <UploadLogEntry>[],
+        startedAt = startedAt ?? DateTime.now();
 
   bool get isActive =>
       status == UploadStatus.preparing ||
@@ -59,6 +70,8 @@ class UploadJob {
     int? totalChunks,
     String? cloudinaryUrl,
     String? errorMessage,
+    List<UploadLogEntry>? logs,
+    DateTime? startedAt,
   }) {
     return UploadJob(
       id: id ?? this.id,
@@ -71,6 +84,14 @@ class UploadJob {
       totalChunks: totalChunks ?? this.totalChunks,
       cloudinaryUrl: cloudinaryUrl ?? this.cloudinaryUrl,
       errorMessage: errorMessage ?? this.errorMessage,
+      logs: logs ?? this.logs,
+      startedAt: startedAt ?? this.startedAt,
     );
+  }
+
+  UploadJob withLog(String message) {
+    final newLogs = List<UploadLogEntry>.from(logs)
+      ..add(UploadLogEntry(DateTime.now(), message));
+    return copyWith(logs: newLogs);
   }
 }

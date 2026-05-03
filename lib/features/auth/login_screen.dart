@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
@@ -313,10 +314,11 @@ class _LoginForm extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Image.network(
-                    'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/1024px-Google_%22G%22_logo.svg.png',
+                  CachedNetworkImage(
+                    imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/1024px-Google_%22G%22_logo.svg.png',
                     height: 22,
-                    errorBuilder: (_, _, _) => const Icon(Icons.g_mobiledata, color: Colors.blue),
+                    placeholder: (_, __) => const Icon(Icons.g_mobiledata, color: Colors.blue),
+                    errorWidget: (_, __, ___) => const Icon(Icons.g_mobiledata, color: Colors.blue),
                   ),
                   const SizedBox(width: 10),
                   const Text(
@@ -446,10 +448,11 @@ class _RegisterForm extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Image.network(
-                    'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/1024px-Google_%22G%22_logo.svg.png',
+                  CachedNetworkImage(
+                    imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/1024px-Google_%22G%22_logo.svg.png',
                     height: 22,
-                    errorBuilder: (_, _, _) => const Icon(Icons.g_mobiledata, color: Colors.blue),
+                    placeholder: (_, __) => const Icon(Icons.g_mobiledata, color: Colors.blue),
+                    errorWidget: (_, __, ___) => const Icon(Icons.g_mobiledata, color: Colors.blue),
                   ),
                   const SizedBox(width: 10),
                   const Text(

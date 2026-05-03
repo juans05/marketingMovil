@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -742,11 +743,14 @@ class _CalendarGrid extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: AppColors.glassCard(),
-      child: GridView.count(
-        crossAxisCount: 7,
+      child: GridView.builder(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 7,
+        ),
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        children: cells,
+        itemCount: cells.length,
+        itemBuilder: (_, i) => cells[i],
       ),
     );
   }
@@ -777,12 +781,18 @@ class _ScheduledCard extends StatelessWidget {
             child: video.thumbnailUrl != null
                 ? ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.network(video.thumbnailUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => const Icon(
-                            Icons.video_file,
-                            color: AppColors.primary,
-                            size: 24)),
+                    child: CachedNetworkImage(
+                      imageUrl: video.thumbnailUrl!,
+                      fit: BoxFit.cover,
+                      placeholder: (_, __) => const Icon(
+                          Icons.video_file,
+                          color: AppColors.primary,
+                          size: 24),
+                      errorWidget: (_, __, ___) => const Icon(
+                          Icons.video_file,
+                          color: AppColors.primary,
+                          size: 24),
+                    ),
                   )
                 : const Icon(Icons.video_file,
                     color: AppColors.primary, size: 24),

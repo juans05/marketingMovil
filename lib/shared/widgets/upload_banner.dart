@@ -62,7 +62,9 @@ class _UploadChipState extends State<_UploadChip> {
 
     return Material(
       color: Colors.transparent,
-      child: Container(
+      child: GestureDetector(
+        onTap: () => _showLogDialog(context),
+        child: Container(
         width: 76,
         height: 100,
         decoration: BoxDecoration(
@@ -159,6 +161,63 @@ class _UploadChipState extends State<_UploadChip> {
             ),
           ],
         ),
+        ),
+      ),
+    );
+  }
+
+  void _showLogDialog(BuildContext context) {
+    final job = widget.job;
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppColors.bgSecondary,
+        title: Row(
+          children: [
+            const Icon(Icons.terminal, color: AppColors.primary, size: 20),
+            const SizedBox(width: 8),
+            const Text('Log de subida',
+                style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
+            const Spacer(),
+            Text(
+              '${job.logs.length} eventos',
+              style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 380,
+          child: job.logs.isEmpty
+              ? const Center(
+                  child: Text('Aún no hay eventos registrados...',
+                      style: TextStyle(color: AppColors.textMuted)),
+                )
+              : ListView.builder(
+                  itemCount: job.logs.length,
+                  itemBuilder: (_, i) {
+                    final entry = job.logs[i];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: SelectableText(
+                        entry.message,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                          height: 1.4,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
+        ],
       ),
     );
   }

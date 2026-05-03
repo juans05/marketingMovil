@@ -1,15 +1,17 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../models/user_model.dart';
 import '../models/artist_model.dart';
 import '../models/video_model.dart';
 import '../models/upload_job.dart';
 import 'api_service.dart';
-import 'chunked_uploader.dart';
 import 'local_notifier.dart';
 import 'storage_service.dart';
 import 'upload_queue.dart';
+import 'upload_worker.dart';
 import 'video_compressor.dart';
 
 enum AppStatus { idle, loading, error }
@@ -94,6 +96,7 @@ class AppProvider extends ChangeNotifier {
       final user = await _api.login(email, password);
       _user = user;
       await _storage.saveUser(user);
+      _api.refreshToken();
       await init();
       _setIdle();
       return true;
@@ -128,6 +131,7 @@ class AppProvider extends ChangeNotifier {
       
       _user = user;
       await _storage.saveUser(user);
+      _api.refreshToken();
       await init();
       _setIdle();
       return true;
@@ -147,6 +151,7 @@ class AppProvider extends ChangeNotifier {
       final user = await _api.registerUser(name, email, password, birthDate);
       _user = user;
       await _storage.saveUser(user);
+      _api.refreshToken();
       _setIdle();
       return true;
     } on ApiException catch (e) {
@@ -328,20 +333,46 @@ class AppProvider extends ChangeNotifier {
     _uploadQueue.enqueue(job);
     _localNotifier?.notifyUploadStarted(title);
 
-    // ── Path B: URL remota ─────────────────────────────────────────────────
+    // ── Path B: URL remota (isolate) ─────────────────────────────────────────
     if (remoteUrl != null) {
       try {
         job = job.copyWith(status: UploadStatus.registering, progress: 0.2);
         _uploadQueue.update(job);
 
-        await _api.uploadFromUrl(
-          artistId: artistId,
-          remoteUrl: remoteUrl,
-          title: title,
-        );
+        final receivePort = ReceivePort();
+        await Isolate.spawn(_remoteUploadIsolate, {
+          'sendPort': receivePort.sendPort,
+          'baseUrl': _storage.apiUrl,
+          'authToken': _user?.token ?? '',
+          'artistId': artistId,
+          'remoteUrl': remoteUrl,
+          'title': title,
+        });
 
-        _uploadQueue.complete();
-        _localNotifier?.notifyUploadComplete(title);
+        await for (final msg in receivePort) {
+          final message = UploadMessage.fromJson(msg as Map<String, dynamic>);
+          if (message.type == 'progress') {
+            job = job.copyWith(
+              status: _statusFromLabel(message.status),
+              progress: message.progress ?? 0.0,
+            );
+            _uploadQueue.update(job);
+          } else if (message.type == 'log') {
+            debugPrint('[UPLOAD] ${message.log}');
+            job = job.withLog(message.log ?? '');
+            _uploadQueue.update(job);
+          } else if (message.type == 'done') {
+            _uploadQueue.complete();
+            _localNotifier?.notifyUploadComplete(title);
+            receivePort.close();
+            break;
+          } else if (message.type == 'error') {
+            _uploadQueue.fail(message.error ?? 'Error desconocido');
+            _localNotifier?.notifyUploadFailed(title, message.error ?? '');
+            receivePort.close();
+            break;
+          }
+        }
       } catch (e) {
         _uploadQueue.fail(e.toString());
         _localNotifier?.notifyUploadFailed(title, e.toString());
@@ -350,79 +381,121 @@ class AppProvider extends ChangeNotifier {
     }
 
     // ── Path A: Archivo local ──────────────────────────────────────────────
-    String? compressedPath;
+    String? finalPath;
     try {
-      job = job.copyWith(status: UploadStatus.compressing, progress: 0.05);
-      _uploadQueue.update(job);
+      final file = File(filePath!);
+      final fileSize = await file.length();
+      final needsCompression = fileSize > 10 * 1024 * 1024; // 10MB
 
-      compressedPath = await VideoCompressor.compress(
-        filePath!,
-        onProgress: (p) {
-          _uploadQueue.update(job.copyWith(
-            status: UploadStatus.compressing,
-            progress: 0.05 + (p * 0.05),
-          ));
-        },
-      );
+      // Compresión solo si >10MB (corre en main isolate - video_compress usa platform channels)
+      if (needsCompression) {
+        job = job.copyWith(status: UploadStatus.compressing, progress: 0.05);
+        _uploadQueue.update(job);
 
+        final compressedPath = await VideoCompressor.compress(
+          filePath,
+          onProgress: (p) {
+            _uploadQueue.update(job.copyWith(
+              status: UploadStatus.compressing,
+              progress: 0.05 + (p * 0.05),
+            ));
+          },
+        );
+        finalPath = compressedPath;
+      } else {
+        // Skip compresión - archivo ya es pequeño
+        finalPath = filePath;
+        job = job.copyWith(status: UploadStatus.uploading, progress: 0.1);
+        _uploadQueue.update(job);
+      }
+
+      // Obtener signature (rapido)
       final folder = 'vidalis/$artistId';
       final sigData = await _api.getCloudinarySignature(folder, 'video');
 
       await _uploadQueue.savePending({
         'uploadId': uploadId,
-        'filePath': compressedPath,
+        'filePath': finalPath,
         'artistId': artistId,
         'title': title,
         'completedChunks': 0,
       });
 
-      job = job.copyWith(
-          status: UploadStatus.uploading, filePath: compressedPath, progress: 0.1);
-      _uploadQueue.update(job);
-
-      final uploader = ChunkedUploader();
-      final secureUrl = await uploader.upload(
-        filePath: compressedPath,
-        sigData: sigData,
-        uploadId: uploadId,
-        onProgress: (p) {
-          _uploadQueue.update(job.copyWith(
-            status: UploadStatus.uploading,
-            progress: 0.1 + (p * 0.85),
-          ));
+      // Subida + registro en isolate de fondo
+      final receivePort = ReceivePort();
+      await Isolate.spawn(_fileUploadIsolate, {
+        'sendPort': receivePort.sendPort,
+        'params': {
+          'filePath': finalPath,
+          'artistId': artistId,
+          'title': title,
+          'baseUrl': _storage.apiUrl,
+          'authToken': _user?.token ?? '',
+          'sigData': sigData,
+          'uploadId': uploadId,
         },
-      );
+      });
 
-      job = job.copyWith(status: UploadStatus.registering, progress: 0.97);
+      job = job.copyWith(status: UploadStatus.uploading, progress: 0.1);
       _uploadQueue.update(job);
 
-      await _api.registerVideo(
-        artistId: artistId,
-        sourceUrl: secureUrl,
-        title: title,
-      );
+      await for (final msg in receivePort) {
+        final message = UploadMessage.fromJson(msg as Map<String, dynamic>);
+        if (message.type == 'progress') {
+          _uploadQueue.update(job.copyWith(
+            status: _statusFromLabel(message.status),
+            progress: message.progress ?? 0.0,
+          ));
+        } else if (message.type == 'done') {
+          // Descontar sparks localmente
+          if (_user != null) {
+            _user = _user!.copyWith(sparksBalance: _user!.sparksBalance - 10);
+            await _storage.saveUser(_user!);
+          }
 
-      // Descontar sparks localmente
-      if (_user != null) {
-        _user = _user!.copyWith(sparksBalance: _user!.sparksBalance - 10);
-        await _storage.saveUser(_user!);
+          await _uploadQueue.clearPending();
+          _uploadQueue.complete();
+          _localNotifier?.notifyUploadComplete(title);
+          receivePort.close();
+          break;
+        } else if (message.type == 'error') {
+          _uploadQueue.fail(message.error ?? 'Error desconocido');
+          _localNotifier?.notifyUploadFailed(title, message.error ?? '');
+          receivePort.close();
+          break;
+        }
       }
-
-      await _uploadQueue.clearPending();
-      _uploadQueue.complete();
-      _localNotifier?.notifyUploadComplete(title);
     } catch (e) {
       _uploadQueue.fail(e.toString());
       _localNotifier?.notifyUploadFailed(title, e.toString());
     } finally {
-      if (compressedPath != null && _uploadQueue.activeJob?.status == UploadStatus.done) {
-        final f = File(compressedPath);
+      // Limpiar archivo comprimido solo si fue comprimido y subio exitosamente
+      if (finalPath != null && finalPath != filePath && _uploadQueue.activeJob?.status == UploadStatus.done) {
+        final f = File(finalPath);
         if (await f.exists()) await f.delete();
       }
     }
   }
 
-  Future<void> resumePendingUpload() async {
+  UploadStatus _statusFromLabel(String? label) {
+    switch (label) {
+      case 'compressing': return UploadStatus.compressing;
+      case 'registering': return UploadStatus.registering;
+      case 'uploading': return UploadStatus.uploading;
+      default: return UploadStatus.uploading;
+    }
+  }
+
+  // Wrapper para Isolate.spawn (debe ser static o top-level function)
+  static void _fileUploadIsolate(Map<String, dynamic> params) {
+    uploadWorker(params);
+  }
+
+  static void _remoteUploadIsolate(Map<String, dynamic> params) {
+    uploadFromUrlWorker(params);
+  }
+
+  Future<void> resumePendingUpload({bool showDialog = true}) async {
     final pending = await _uploadQueue.loadPending();
     if (pending == null) return;
 
@@ -453,34 +526,45 @@ class AppProvider extends ChangeNotifier {
       final folder = 'vidalis/$artistId';
       final sigData = await _api.getCloudinarySignature(folder, 'video');
 
-      final uploader = ChunkedUploader();
-      final secureUrl = await uploader.upload(
-        filePath: filePath,
-        sigData: sigData,
-        uploadId: uploadId,
-        startChunk: completedChunks,
-        onProgress: (p) {
-          _uploadQueue.update(job.copyWith(
-            status: UploadStatus.uploading,
-            progress: 0.1 + (p * 0.85),
-          ));
+      final receivePort = ReceivePort();
+      await Isolate.spawn(_fileUploadIsolate, {
+        'sendPort': receivePort.sendPort,
+        'params': {
+          'filePath': filePath,
+          'artistId': artistId,
+          'title': title,
+          'baseUrl': _storage.apiUrl,
+          'authToken': _user?.token ?? '',
+          'sigData': sigData,
+          'uploadId': uploadId,
         },
-      );
+      });
 
-      job = job.copyWith(status: UploadStatus.registering, progress: 0.97);
-      _uploadQueue.update(job);
+      await for (final msg in receivePort) {
+        final message = UploadMessage.fromJson(msg as Map<String, dynamic>);
+        if (message.type == 'progress') {
+          _uploadQueue.update(job.copyWith(
+            status: _statusFromLabel(message.status),
+            progress: message.progress ?? 0.0,
+          ));
+        } else if (message.type == 'done') {
+          if (_user != null) {
+            _user = _user!.copyWith(sparksBalance: _user!.sparksBalance - 10);
+            await _storage.saveUser(_user!);
+          }
 
-      await _api.registerVideo(artistId: artistId, sourceUrl: secureUrl, title: title);
-      
-      // Descontar sparks localmente
-      if (_user != null) {
-        _user = _user!.copyWith(sparksBalance: _user!.sparksBalance - 10);
-        await _storage.saveUser(_user!);
+          await _uploadQueue.clearPending();
+          _uploadQueue.complete();
+          _localNotifier?.notifyUploadComplete(title);
+          receivePort.close();
+          break;
+        } else if (message.type == 'error') {
+          _uploadQueue.fail(message.error ?? 'Error desconocido');
+          _localNotifier?.notifyUploadFailed(title, message.error ?? '');
+          receivePort.close();
+          break;
+        }
       }
-
-      await _uploadQueue.clearPending();
-      _uploadQueue.complete();
-      _localNotifier?.notifyUploadComplete(title);
     } catch (e) {
       _uploadQueue.fail(e.toString());
       _localNotifier?.notifyUploadFailed(title, e.toString());
@@ -489,6 +573,54 @@ class AppProvider extends ChangeNotifier {
         final f = File(filePath);
         if (await f.exists()) await f.delete();
       }
+    }
+  }
+
+  Future<void> checkPendingUpload(BuildContext? context) async {
+    final pending = await _uploadQueue.loadPending();
+    if (pending == null) return;
+
+    final filePath = pending['filePath'] as String?;
+    if (filePath == null || !File(filePath).existsSync()) {
+      await _uploadQueue.clearPending();
+      return;
+    }
+
+    if (context == null || context.mounted == false) return;
+
+    final title = pending['title'] as String? ?? 'Video';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C1E),
+        title: const Text('Subida pendiente',
+            style: TextStyle(color: Colors.white)),
+        content: Text(
+          'Tienes una subida pendiente: "$title". ¿Deseas reanudarla?',
+          style: const TextStyle(color: Color(0xFF8E8E93)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar',
+                style: TextStyle(color: Color(0xFF8E8E93))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00E5C7),
+              foregroundColor: Colors.black,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reanudar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await resumePendingUpload();
+    } else {
+      await _uploadQueue.clearPending();
     }
   }
 

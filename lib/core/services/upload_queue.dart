@@ -8,18 +8,22 @@ class UploadQueue extends ChangeNotifier {
   static const _pendingKey = 'vidalis_pending_upload';
 
   UploadJob? _activeJob;
+  final _progressNotifier = ValueNotifier<double>(0.0);
 
   UploadJob? get activeJob => _activeJob;
   bool get hasActiveJob => _activeJob != null;
+  ValueListenable<double> get progressListenable => _progressNotifier;
 
   void enqueue(UploadJob job) {
     if (_activeJob != null) return;
     _activeJob = job;
+    _progressNotifier.value = job.progress;
     notifyListeners();
   }
 
   void update(UploadJob job) {
     _activeJob = job;
+    _progressNotifier.value = job.progress;
     notifyListeners();
   }
 

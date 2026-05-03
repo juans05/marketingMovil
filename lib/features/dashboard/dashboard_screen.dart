@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/artist_model.dart';
 import '../../core/services/app_provider.dart';
+import '../../shared/widgets/upload_banner.dart';
 import '../analytics/analytics_screen.dart';
 import '../content/content_screen.dart';
 import '../planning/planning_screen.dart';
@@ -21,6 +22,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   int _navIndex = 0;
+  final PageController _pageController = PageController();
 
   @override
   void initState() {
@@ -30,9 +32,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
   List<_NavItem> _navItems(bool isAgency) => [
         const _NavItem(label: 'Contenido',  icon: Icons.video_library_rounded),
-        const _NavItem(label: 'Analítica',  icon: Icons.graphic_eq_rounded), // Using graphic_eq for a more audio/vital pulse vibe
+        const _NavItem(label: 'Analítica',  icon: Icons.graphic_eq_rounded),
         const _NavItem(label: 'Calendario', icon: Icons.calendar_month_rounded),
         if (isAgency)
           const _NavItem(label: 'Marcas',       icon: Icons.people_rounded)
@@ -43,61 +51,78 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _screen(int index, bool isAgency) {
     switch (index) {
       case 0:
-        return const ContentScreen();
+        return const _KeepAliveContent(child: ContentScreen());
       case 1:
-        return const AnalyticsScreen();
+        return const _KeepAliveContent(child: AnalyticsScreen());
       case 2:
-        return const PlanningScreen();
+        return const _KeepAliveContent(child: PlanningScreen());
       case 3:
-        return isAgency ? const ArtistsScreen() : const SocialConnectScreen();
+        return _KeepAliveContent(child: isAgency ? const ArtistsScreen() : const SocialConnectScreen());
       default:
-        return const ContentScreen();
+        return const _KeepAliveContent(child: ContentScreen());
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final prov = context.watch<AppProvider>();
-    final isAgency = prov.isAgency;
-    final navItems = _navItems(isAgency);
-
-    // Clamp nav index
+    final userState = context.select((AppProvider p) => (
+      name: p.user?.name ?? '',
+      email: p.user?.email ?? '',
+      plan: p.user?.plan ?? 'free',
+      sparks: p.user?.sparksBalance ?? 0,
+      isAgency: p.isAgency,
+      activeArtist: p.activeArtist,
+      artists: p.artists,
+    ));
+    final navItems = _navItems(userState.isAgency);
     final safeIndex = _navIndex.clamp(0, navItems.length - 1);
 
     return Scaffold(
-      extendBody: true, // Allows the body to flow behind the transparent navbar
+      extendBody: true,
       backgroundColor: AppColors.bgPrimary,
       appBar: _VidalisAppBar(
-        user: prov.user?.name ?? '',
-        userEmail: prov.user?.email ?? '',
-        userPlan: prov.user?.plan ?? 'free',
-        activeArtist: prov.activeArtist,
-        artists: prov.artists,
-        isAgency: isAgency,
-        sparksBalance: prov.user?.sparksBalance ?? 0,
-        onArtistSelected: prov.setActiveArtist,
+        user: userState.name,
+        userEmail: userState.email,
+        userPlan: userState.plan,
+        activeArtist: userState.activeArtist,
+        artists: userState.artists,
+        isAgency: userState.isAgency,
+        sparksBalance: userState.sparks,
+        onArtistSelected: context.read<AppProvider>().setActiveArtist,
         onLogout: () async {
-          await prov.logout();
+          await context.read<AppProvider>().logout();
           if (context.mounted) {
             Navigator.of(context).pushReplacementNamed('/login');
           }
         },
       ),
-      body: _screen(safeIndex, isAgency),
+      body: Stack(
+        children: [
+          PageView(
+            controller: _pageController,
+            physics: const NeverScrollableScrollPhysics(),
+            children: List.generate(navItems.length, (i) => _screen(i, userState.isAgency)),
+          ),
+          const UploadBannerOverlay(),
+        ],
+      ),
       bottomNavigationBar: Container(
         margin: const EdgeInsets.only(left: 24, right: 24, bottom: 24),
         decoration: AppColors.glassCard(radius: 30),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(30),
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
             child: NavigationBar(
-              backgroundColor: Colors.transparent, // Fully transparent to show blur
+              backgroundColor: Colors.transparent,
               elevation: 0,
               indicatorColor: AppColors.primary.withValues(alpha: 0.15),
               selectedIndex: safeIndex,
-              onDestinationSelected: (i) => setState(() => _navIndex = i),
-              labelBehavior: NavigationDestinationLabelBehavior.alwaysHide, // Cleaner social look
+              onDestinationSelected: (i) {
+                setState(() => _navIndex = i);
+                _pageController.jumpToPage(i);
+              },
+              labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
               height: 65,
               destinations: navItems
                   .map((item) => NavigationDestination(
@@ -115,6 +140,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
 }
 
+class _KeepAliveContent extends StatefulWidget {
+  const _KeepAliveContent({required this.child});
+  final Widget child;
+
+  @override
+  State<_KeepAliveContent> createState() => _KeepAliveContentState();
+}
+
+class _KeepAliveContentState extends State<_KeepAliveContent> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
+}
 
 class _NavItem {
   const _NavItem({required this.label, required this.icon});
@@ -485,14 +528,16 @@ class _PulseIndicatorState extends State<_PulseIndicator>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _anim,
-      builder: (_, _) => Container(
-        width: 8,
-        height: 8,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: AppColors.success.withValues(alpha: _anim.value),
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _anim,
+        builder: (_, _) => Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: AppColors.success.withValues(alpha: _anim.value),
+          ),
         ),
       ),
     );
