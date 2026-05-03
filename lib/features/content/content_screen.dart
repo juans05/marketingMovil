@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
@@ -36,24 +37,23 @@ class _ContentScreenState extends State<ContentScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final prov = context.watch<AppProvider>();
+    final prov = context.read<AppProvider>();
     final artists = prov.artists;
     final active = prov.activeArtist;
 
-    // Recarga automática si acaba de terminar una subida
-    if (_wasUploading && !prov.isUploading) {
+    // Detectar transición de "subiendo" → "terminado" para recargar la galería
+    final isUploading = prov.isUploading;
+    if (_wasUploading && !isUploading) {
       _load(prov);
     }
-    _wasUploading = prov.isUploading;
+    _wasUploading = isUploading;
 
-    // Construir una clave que represente el estado actual
     final key = '${active?.id}_${artists.map((a) => a.id).join(',')}';
 
     if (key != _lastLoadedKey && artists.isNotEmpty) {
       _lastLoadedKey = key;
       _load(prov);
     } else if (artists.isEmpty && !prov.isLoading) {
-      // Sin artistas creados aún
       setState(() {
         _loading = false;
         _entries = [];
@@ -227,8 +227,14 @@ class _ContentScreenState extends State<ContentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final prov = context.watch<AppProvider>();
-    final artists = prov.artists;
+    final uploadState = context.select((AppProvider p) => (
+      isUploading: p.isUploading,
+      progress: p.uploadProgress,
+      statusLabel: p.uploadQueue.activeJob?.statusLabel,
+      uploadTitle: p.currentUploadTitle,
+      artists: p.artists,
+    ));
+    final artists = uploadState.artists;
     final showFilter = artists.length > 1;
 
     return RefreshIndicator(
@@ -237,21 +243,19 @@ class _ContentScreenState extends State<ContentScreen> {
       backgroundColor: AppColors.bgCard,
       child: CustomScrollView(
         slivers: [
-          // Upload card
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
               child: _UploadCard(
-                uploading: prov.isUploading,
-                progress: prov.uploadProgress,
-                statusLabel: prov.uploadQueue.activeJob?.statusLabel,
-                uploadTitle: prov.currentUploadTitle,
-                onPick: prov.isUploading ? null : _openSourcePicker,
+                uploading: uploadState.isUploading,
+                progress: uploadState.progress,
+                statusLabel: uploadState.statusLabel,
+                uploadTitle: uploadState.uploadTitle,
+                onPick: uploadState.isUploading ? null : _openSourcePicker,
               ),
             ),
           ),
 
-          // Filtro de artistas (solo agencias con múltiples artistas)
           if (showFilter)
             SliverToBoxAdapter(
               child: _ArtistFilterBar(
@@ -260,14 +264,13 @@ class _ContentScreenState extends State<ContentScreen> {
                 onSelect: (id) {
                   setState(() {
                     _filterArtistId = id;
-                    _lastLoadedKey = null; // forzar recarga
+                    _lastLoadedKey = null;
                   });
                   _load();
                 },
               ),
             ),
 
-          // Contenido
           if (_loading)
             const SliverPadding(
               padding: EdgeInsets.all(16),
@@ -322,18 +325,22 @@ class _ContentScreenState extends State<ContentScreen> {
           else
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              sliver: SliverGrid.count(
-                crossAxisCount: 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: 0.75,
-                children: _entries
-                    .map((e) => _VideoCard(
-                          video: e.video,
-                          artistName: e.artist?.name,
-                          onTap: () => _handleVideoTap(e.video),
-                        ))
-                    .toList(),
+              sliver: SliverGrid.builder(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: 0.75,
+                ),
+                itemCount: _entries.length,
+                itemBuilder: (context, index) {
+                  final e = _entries[index];
+                  return _VideoCard(
+                    video: e.video,
+                    artistName: e.artist?.name,
+                    onTap: () => _handleVideoTap(e.video),
+                  );
+                },
               ),
             ),
 
@@ -731,13 +738,13 @@ class _VideoCardState extends State<_VideoCard> with SingleTickerProviderStateMi
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: video.thumbnailUrl != null
-                  ? Image.network(
-                      video.thumbnailUrl!,
+                  ? CachedNetworkImage(
+                      imageUrl: video.thumbnailUrl!,
                       fit: BoxFit.cover,
                       width: double.infinity,
                       height: double.infinity,
-                      errorBuilder: (_, _, _) =>
-                          const _ThumbnailFallback(),
+                      placeholder: (_, __) => const _ThumbnailFallback(),
+                      errorWidget: (_, __, ___) => const _ThumbnailFallback(),
                     )
                   : const _ThumbnailFallback(),
             ),
@@ -961,12 +968,16 @@ class _VideoActionSheet extends StatelessWidget {
               if (video.thumbnailUrl != null)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    video.thumbnailUrl!,
+                  child: CachedNetworkImage(
+                    imageUrl: video.thumbnailUrl!,
                     width: 48,
                     height: 48,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => const Icon(
+                    placeholder: (_, __) => const Icon(
+                        Icons.video_file,
+                        color: AppColors.primary,
+                        size: 28),
+                    errorWidget: (_, __, ___) => const Icon(
                         Icons.video_file,
                         color: AppColors.primary,
                         size: 28),
